@@ -1,0 +1,29 @@
+{
+  "name": "lessrepeat",
+  "version": "1.0.0",
+  "description": "LessRepeat. A multi-tenant AI voice agent studio using Deepgram live transcription, Groq reasoning, Rumik streaming speech, and VoBiz through Dograh.",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "build": "node scripts/build-charts.cjs",
+    "start": "node server.js",
+    "setup": "sh setup.sh",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "mammoth": "^1.12.1",
+    "pdf-parse": "^1.1.4",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "recharts": "3.1.2",
+    "ws": "8.21.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "0.25.9"
+  }
+}

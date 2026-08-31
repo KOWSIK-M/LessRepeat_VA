@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">LessRepeat</title><desc id="desc">AI voice agents that speak, understand and act.</desc>
+  <defs>
+    <linearGradient id="bg" x1="120" y1="0" x2="1080" y2="630"><stop stop-color="#151020"/><stop offset="1" stop-color="#0B0812"/></linearGradient>
+    <linearGradient id="v" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7C3AED"/><stop offset=".52" stop-color="#F43FCE"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#A855F7" stop-opacity=".28"/><stop offset="1" stop-color="#A855F7" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/><circle cx="930" cy="190" r="390" fill="url(#glow)"/>
+  <g transform="translate(84 76)"><rect width="72" height="72" rx="20" fill="#120C1C" stroke="#3B2850"/><path d="M10 39c6 0 7-8 12-8s6 14 12 14" fill="none" stroke="#7C3AED" stroke-width="5" stroke-linecap="round" opacity=".36"/><path d="M10 39c8 0 9-15 16-15s8 26 15 26" fill="none" stroke="#9333EA" stroke-width="5.5" stroke-linecap="round" opacity=".62"/><path d="M10 39c11 0 12-21 22-21 11 0 11 37 21 37 8 0 7-18 13-18" fill="none" stroke="url(#v)" stroke-width="6.5" stroke-linecap="round"/></g>
+  <text x="176" y="128" fill="#FCF8FF" font-family="Inter,Arial,sans-serif" font-size="46" font-weight="700">LessRepeat</text>
+  <text x="84" y="296" fill="#FCF8FF" font-family="Inter,Arial,sans-serif" font-size="68" font-weight="700" letter-spacing="-2">One clear voice.</text>
+  <text x="84" y="374" fill="url(#v)" font-family="Inter,Arial,sans-serif" font-size="68" font-weight="700" letter-spacing="-2">Less repetition.</text>
+  <text x="84" y="458" fill="#C7B8D8" font-family="Inter,Arial,sans-serif" font-size="27">AI voice agents that understand, respond and act.</text>
+  <rect x="84" y="510" width="264" height="50" rx="25" fill="#211831" stroke="#49345F"/><circle cx="113" cy="535" r="6" fill="#34D399"/><text x="132" y="543" fill="#EDE3F7" font-family="Inter,Arial,sans-serif" font-size="20">Built for Indian business</text>
+</svg>

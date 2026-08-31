@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">LessRepeat</title>
+  <desc id="desc">Repeated voice waves resolving into one clear signal.</desc>
+  <defs>
+    <linearGradient id="voice" x1="9" y1="18" x2="57" y2="45" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C3AED"/><stop offset=".52" stop-color="#F43FCE"/><stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-40%" width="160%" height="180%"><feGaussianBlur stdDeviation="2.2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="#120C1C" stroke="#342347"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9 34c5 0 6-7 10-7s5 12 10 12" stroke="#7C3AED" stroke-width="4.5" opacity=".36"/>
+    <path d="M9 34c7 0 8-13 14-13s7 23 13 23" stroke="#9333EA" stroke-width="5" opacity=".62"/>
+    <path d="M9 34c9 0 11-18 19-18 10 0 10 33 19 33 7 0 6-16 11-16" stroke="url(#voice)" stroke-width="6" filter="url(#softGlow)"/>
+  </g>
+</svg>

@@ -1,0 +1,72 @@
+# Secrets and local configuration
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Nested repository metadata retained only as a local recovery backup
+**/.git.nested-backup/
+
+# JavaScript dependencies and generated output
+**/node_modules/
+**/node_modules.nosync/
+**/.next/
+**/dist/
+**/build/
+**/coverage/
+**/.cache/
+
+# Python environments and caches
+**/.venv/
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+*.py[cod]
+
+# Runtime databases, uploads, recordings and object storage
+**/data/
+**/logs/
+**/run/
+**/uploads/
+**/recordings/
+**/dograh_pcm_cache/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.wav
+*.mp3
+*.webm
+*.ogg
+
+# Local development and editor state
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.tmp
+*.bak
+
+# Local infrastructure state
+**/coturn/
+**/infrastructure/
+**/prd/
+**/.vercel/
+**/.playwright-mcp/
+**/.superpowers/
+**/.gstack/
+
+# Local diagnostic scripts that may contain service identifiers or tokens
+**/test-dograh.js
+**/test-create-workflow.js
+**/test-embed-token.js
+**/backfill-token.js
+**/configure_pipeline.py

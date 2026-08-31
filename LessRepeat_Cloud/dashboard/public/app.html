@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>LessRepeat Studio</title>
+<meta name="description" content="LessRepeat Studio. Build, deploy and manage dedicated AI voice agents in one secure workspace." />
+<meta name="theme-color" content="#0B0812" />
+<link rel="icon" href="/assets/favicon.png?v=20260830-png1" type="image/png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/assets/brand.css?v=20260829-lessrepeat2" />
+<link rel="stylesheet" href="/assets/app.css?v=20260830-recordings3" />
+</head>
+<body class="grain">
+
+<!-- Background atmosphere (shared with marketing for one cohesive product) -->
+<div class="atmos" aria-hidden="true">
+  <span class="glow g1"></span><span class="glow g2"></span><span class="glow g3"></span>
+</div>
+
+<!-- No-JS notice. The console is an authenticated SPA and needs JavaScript. -->
+<noscript>
+  <div class="nojs">
+    <strong>JavaScript is required.</strong>
+    LessRepeat Studio is an interactive app. Please enable JavaScript to sign in and manage your agents.
+  </div>
+</noscript>
+
+<!-- App root. Everything below is rendered by app.js. The skeleton here keeps the
+     first paint premium even before scripts run. It is replaced on boot. -->
+<div id="app" class="app-root" aria-busy="true">
+  <div class="boot">
+    <div class="boot-mark" aria-hidden="true">
+      <svg viewBox="0 0 40 40" width="40" height="40">
+        <rect x="3" y="3" width="34" height="34" rx="11" fill="#20201D"/>
+        <path d="M13 29V11h8.2c4.5 0 7.3 2.4 7.3 6.2 0 2.6-1.3 4.5-3.6 5.4L29 29h-5.1l-3.3-5.6H18V29h-5Zm5-9.6h2.8c1.7 0 2.7-.7 2.7-2.1s-1-2.1-2.7-2.1H18v4.2Z" fill="#D2AE59"/>
+      </svg>
+    </div>
+    <div class="boot-text">Starting LessRepeat<span class="spin boot-spin"></span></div>
+  </div>
+</div>
+
+<!-- Toast stack -->
+<div id="toasts" class="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<!-- Modal host -->
+<div id="modal-host" class="modal-host hide" aria-hidden="true"></div>
+
+<script src="/assets/app.js?v=20260830-stable-fallback2" defer></script>
+</body>
+</html>

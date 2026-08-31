@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: rapidx-voice-studio
+    env: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    disk:
+      name: studio-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: DEPLOY_MODE
+        value: CLOUD
+      - key: NODE_ENV
+        value: production
+      # Speech, Brain, and Telephony keys (to be pasted in the Render dashboard)
+      - key: RUMIK_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Dograh Orchestrator settings
+      - key: DOGRAH_BASE_URL
+        sync: false
+      - key: DOGRAH_API_KEY
+        sync: false
+      - key: DOGRAH_EMBED_TOKEN
+        sync: false
+      - key: DOGRAH_WORKFLOW_ID
+        sync: false
+      - key: DOGRAH_TELEPHONY_CONFIG_ID
+        sync: false
+      - key: DOGRAH_PHONE_NUMBER_ID
+        sync: false
+      - key: VOBIZ_NUMBER
+        sync: false
+      # Optional local test admin seeding on first boot
+      - key: TEST_USER_EMAIL
+        sync: false
+      - key: TEST_USER_PASSWORD
+        sync: false
+      - key: TEST_USER_TENANT
+        value: "LessRepeat Tenant"
+      - key: TEST_USER_SUPER_ADMIN
+        value: "true"
