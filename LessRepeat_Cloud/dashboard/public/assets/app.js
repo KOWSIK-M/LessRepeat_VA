@@ -278,7 +278,7 @@ function renderAuth() {
         el('p', { class: 'sub' }, mode === 'login' ? 'Manage your voice agents, review customer calls, and follow up on new leads.' : 'Create an isolated workspace for AI voice operations. Telephony and carrier charges remain separate.')
       ]),
       form,
-      el('div', { class: 'auth-toggle' }, [
+      el('div', { class: 'auth-toggle', id: 'auth-options' }, [
         document.createTextNode('New here? Ask your administrator for a workspace invitation. '),
         el('a', { href: '/admin' }, 'Admin sign in')
       ]),
@@ -347,6 +347,11 @@ function renderAuth() {
   function showErr(m) { const err = $('#authErr'); err.textContent = m; err.classList.add('show'); }
 
   draw();
+  fetch('/api/auth/config').then(r=>r.json()).then(config=>{
+    const options=document.getElementById('auth-options');
+    if(config.selfServe&&options)options.replaceChildren(document.createTextNode('New to LessRepeat? '),el('a',{href:'/start.html'},'Create your business workspace'),document.createTextNode(' · '),el('a',{href:'/admin'},'Admin sign in'));
+    const hint=document.querySelector('.auth-demo span:last-child');if(config.selfServe&&hint)hint.textContent='Sign in to your business workspace, or create an account to get started.';
+  }).catch(()=>{});
 }
 function resetData() {
   State.agents = []; State.providers = null; State.usage = null; State.telephony = null;
@@ -408,6 +413,7 @@ function navIcon(name) {
 }
 
 function renderShell() {
+  if(State.me?.tenant?.onboardingRequired&&State.me?.user?.role==='owner'){location.replace('/start.html');return;}
   if (isPlatformUserClient(State.me.user) && !new URLSearchParams(location.search).has('workspace')) {
     location.replace('/admin'); return;
   }
@@ -1079,6 +1085,7 @@ function agentCard(a) {
   const did = a.telephony && a.telephony.did ? a.telephony.did : null;
 
   const previewBtn = el('button', { class: 'btn btn-ghost btn-sm' }, 'Preview voice');
+  if(!a.dograh){previewBtn.disabled=true;previewBtn.title='Connect a development voice engine before previewing this draft.';}
   previewBtn.addEventListener('click', () => previewAgentVoice(a, previewBtn));
 
   // textContent everywhere = XSS safe for persona/name
@@ -1087,7 +1094,7 @@ function agentCard(a) {
       el('div', { class: 'ac-av' }, initials(a.name)),
       el('div', { style: 'min-width:0' }, [
         el('div', { class: 'ac-name' }, a.name),
-        el('div', { class: 'ac-voice' }, voiceLine)
+        el('div', { class: 'ac-voice' }, a.dograh ? voiceLine : 'Draft · voice engine not connected')
       ])
     ]),
     el('div', { class: 'ac-persona' }, a.persona || 'No persona set.'),
@@ -1128,7 +1135,7 @@ function openAgentWorkflow(agent) {
   modal({
     title: agent.name + ' workflow',
     body: el('div', { class: 'workflow-view' }, [
-      el('p', { class: 'workflow-intro' }, 'This is the published business flow. Dograh runs the underlying realtime workflow.'),
+      el('p', { class: 'workflow-intro' }, agent.dograh ? 'This is the published business flow. Dograh runs the underlying realtime workflow.' : 'Draft business flow. No live voice workflow is connected yet.'),
       node('rules', 'Identity and boundaries', agent.persona || 'Configured agent instructions'),
       arrow('Start call'),
       node('start', 'Greeting', agent.greeting || 'Open the conversation and understand the caller request.'),

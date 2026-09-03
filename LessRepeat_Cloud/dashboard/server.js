@@ -25,6 +25,9 @@ const core = require('./lib/core');
 core.loadEnv();
 
 const providers = require('./lib/providers');
+const onboarding = require('./lib/onboarding');
+const {isOnboardingLocalOrigin}=require('./lib/dev-origin');
+const onboardingApi = onboarding.create({get defaultProviders(){return DEFAULT_PROVIDERS;},publicUser,publicTenant,publicAgent,createAgent:apiAgentsCreate});
 const { collectOutcome, normalizePhoneDigits } = require('./lib/call-outcomes');
 const payu = require('./lib/payu');
 const demoLinks = require('./lib/demo-links');
@@ -291,6 +294,7 @@ function migrateLegacyAgent(legacy, tenantId) {
 }
 
 async function boot() {
+  if(onboarding.enabled()&&process.env.NODE_ENV==='production')throw new Error('Self-serve onboarding is a development feature. Email verification and abuse controls must be completed before production rollout.');
   await core.initializeStorage();
   // Force a load so a missing/corrupt db.json resolves to a clean default.
   const existing = core.db();
@@ -374,6 +378,7 @@ function publicTenant(t) {
     id: t.id, name: t.name, slug: t.slug, createdAt: t.createdAt,
     branding: t.branding, providers: t.providers, plan: t.plan, planName: adminConsole.planFor(core.db(), t).name,
     status: t.status, privacyMode: t.privacyMode,
+    onboardingRequired: onboarding.enabled() && !!t.onboarding && t.onboarding.status !== 'complete',
   };
 }
 function agentOutcomeSchema(agent, database = core.db()) {
@@ -461,6 +466,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INDIAN_VOICE_PROFILE_IDS = new Set(['indian-neutral', 'indian-professional', 'indian-warm', 'hinglish-natural']);
 
 async function apiSignup(req, res, body) {
+  if (onboarding.enabled()) return onboardingApi.signup(req,res,body);
   if (process.env.ALLOW_PUBLIC_SIGNUP !== 'true') return core.sendJson(res, 403, { error: 'Workspaces are created by your administrator. Please request an invitation.', code: 'invitation_required' });
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
@@ -715,11 +721,14 @@ async function apiAgentsCreate(req, res, ctx) {
   let dograhWorkflow;
   let dograhEmbed;
   try {
-    dograhWorkflow = await dograh.createWorkflow(
+    if (!ctx.onboardingSandbox) {
+    const stagedWorkflow=ctx.onboardingAttempt&&core.db().tenants.find(t=>t.id===ctx.tenant.id)?.onboarding?.provisionedWorkflowId;
+    dograhWorkflow = stagedWorkflow ? await dograh.getWorkflow(stagedWorkflow) : await dograh.createWorkflow(
       configuration.name,
       buildDograhWorkflowDefinition(configuration, tenantVoiceContext(ctx.tenant.id))
     );
-    if (['kokoro', 'gemini_tts'].includes(normalizedTts.provider)) {
+    if(ctx.onboardingAttempt)await core.mutate(d=>{const o=d.tenants.find(t=>t.id===ctx.tenant.id).onboarding;if(o.attempt!==ctx.onboardingAttempt)throw new Error('Agent creation attempt expired');o.provisionedWorkflowId=dograhWorkflow.id;});
+    if (ctx.onboardingAttempt || ['kokoro', 'gemini_tts'].includes(normalizedTts.provider)) {
       dograhWorkflow = await dograh.updateWorkflow(
         dograhWorkflow.id,
         configuration.name,
@@ -728,6 +737,7 @@ async function apiAgentsCreate(req, res, ctx) {
       );
     }
     dograhEmbed = await dograh.createEmbedToken(dograhWorkflow.id, { expiresInDays: 30 });
+    }
   } catch (error) {
     console.error('Dograh provisioning failed:', error.message || 'unknown error');
     return core.sendJson(res, 502, {
@@ -754,7 +764,7 @@ async function apiAgentsCreate(req, res, ctx) {
 
     outcomeSchema: configuration.outcomeSchema,
 
-    telephony: {
+    telephony: ctx.onboardingAttempt ? {did:''} : {
       did:
         String(
           b.did ||
@@ -763,7 +773,7 @@ async function apiAgentsCreate(req, res, ctx) {
         providers.telephony.did
     },
 
-    dograh: {
+    dograh: ctx.onboardingSandbox ? null : {
       workflowId: dograhWorkflow.id,
       status: dograhWorkflow.status || 'active',
       embedToken: dograhEmbed.token
@@ -773,6 +783,12 @@ async function apiAgentsCreate(req, res, ctx) {
   };
 
   await core.mutate((d) => {
+    if(ctx.onboardingAttempt){
+      const tenant=d.tenants.find(t=>t.id===ctx.tenant.id),state=tenant.onboarding;
+      if(state.attempt!==ctx.onboardingAttempt||state.agentId)throw new Error('Setup changed while creating the agent. Reload to see its status.');
+      Object.assign(state,{status:'complete',agentId:agent.id,completedAt:new Date().toISOString(),provisioningUntil:0});
+      agent.onboardingSource=true;
+    }
     d.agents.push(agent);
   });
 
@@ -1492,6 +1508,7 @@ function requestOriginAllowed(req) {
   let origin;
   try { origin = new URL(rawOrigin); } catch (_) { return false; }
   if (!['http:', 'https:'].includes(origin.protocol)) return false;
+  if(isOnboardingLocalOrigin(req))return true;
   const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
   const requestHost = forwardedHost || String(req.headers.host || '').trim();
   const configuredOrigin = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/$/, '');
@@ -2307,6 +2324,8 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Authed GET routes ----
       if (req.method === 'GET') {
+        if (route === '/api/auth/config') return core.send(res,200,JSON.stringify({selfServe:onboarding.enabled(),sandbox:onboarding.sandbox(),authenticated:!!(await core.getSession(req))}),{'Content-Type':'application/json','Cache-Control':'no-store'});
+        if (route === '/api/onboarding') return core.requireRole(req,res,'owner',onboardingApi.handle);
         if (route === '/api/me') return core.requireAuth(req, res, apiMe);
         if (route === '/api/agents') return core.requireAuth(req, res, apiAgentsList);
         if (route === '/api/usage') return core.requireAuth(req, res, apiUsage);
@@ -2364,7 +2383,11 @@ const server = http.createServer(async (req, res) => {
         return core.sendJson(res, 200, {ok:true});
       }
       if (route === '/api/internal/gemini-tts/v1/audio/speech') return apiInternalGeminiTts(req, res, body);
-      if (route === '/api/auth/signup') return apiSignup(req, res, body);
+      if (route === '/api/auth/signup') {
+        if(!core.rateOk(`signup:${ip}`,5,5))return core.sendJson(res,429,{error:'Too many signup attempts. Please try again later.'});
+        return apiSignup(req, res, body);
+      }
+      if (['/api/onboarding/business','/api/onboarding/draft','/api/onboarding/create'].includes(route)) return core.requireRole(req,res,'owner',onboardingApi.handle,body);
       if (route === '/api/auth/login') return apiLogin(req, res, body);
       if (route === '/api/auth/logout') return apiLogout(req, res);
       if (route === '/api/auth/impersonation/exit') return core.requireAuth(req, res, apiImpersonationExit, body);
@@ -2559,7 +2582,7 @@ boot().then(() => {
     }
   }, 30000);
   meterTimer.unref();
-  server.listen(PORT, () => {
+  server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
     const live = providers.describeProviders();
     const flag = (layer, id) => (live[layer].find((p) => p.id === id) || {}).live ? 'ok' : 'MISSING';
     console.log('\n  LessRepeat  ready');
