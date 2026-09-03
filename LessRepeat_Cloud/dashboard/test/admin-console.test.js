@@ -46,7 +46,7 @@ test('admin onboarding, invitations, presets, limits, permissions and suspension
   const probe=http.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
   const base='http://127.0.0.1:'+port;
   const pass='Testing-admin-only-123!';
-  const logs=[];const child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,NODE_ENV:'test',PORT:String(port),RAPIDX_DB_FILE:path.join(dir,'db.json'),TEST_USER_EMAIL:'admin@example.test',TEST_USER_PASSWORD:pass,TEST_USER_SUPER_ADMIN:'true',PUBLIC_ORIGIN:base,ALLOW_PUBLIC_SIGNUP:'false',DOGRAH_API_KEY:'test-only',DOGRAH_BASE_URL:'http://127.0.0.1:'+upstream.address().port},stdio:['ignore','pipe','pipe']});
+  const logs=[];const child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,NODE_ENV:'test',PORT:String(port),RAPIDX_DB_FILE:path.join(dir,'db.json'),TEST_USER_EMAIL:'admin@example.test',TEST_USER_PASSWORD:pass,TEST_USER_SUPER_ADMIN:'true',PUBLIC_ORIGIN:base,ALLOW_PUBLIC_SIGNUP:'false',DEMO_LINK_ENCRYPTION_KEY:require('node:crypto').randomBytes(32).toString('hex'),DOGRAH_API_KEY:'test-only',DOGRAH_BASE_URL:'http://127.0.0.1:'+upstream.address().port},stdio:['ignore','pipe','pipe']});
   child.stdout.on('data',b=>logs.push(String(b)));child.stderr.on('data',b=>logs.push(String(b)));
   t.after(async()=>{child.kill();await new Promise(r=>setTimeout(r,300));upstream.closeAllConnections();await new Promise(r=>upstream.close(r));await fs.rm(dir,{recursive:true,force:true});});
   for(let i=0;i<100;i++){try{if((await fetch(base+'/api/health')).ok)break;}catch(_){}if(child.exitCode!==null)throw Error(logs.join(''));await new Promise(r=>setTimeout(r,50));}

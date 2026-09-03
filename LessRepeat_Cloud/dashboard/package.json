@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node scripts/build-charts.cjs",
     "start": "node server.js",
+    "dev:onboarding": "node scripts/start-onboarding-dev.cjs",
     "setup": "sh setup.sh",
     "test": "node --test test/*.test.js"
   },

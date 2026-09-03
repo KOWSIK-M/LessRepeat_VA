@@ -158,6 +158,7 @@ function htmlEscape(s) {
      bug we are preventing: each write reads-modifies-writes under the lock).
    ========================================================================== */
 
+loadEnv(); // Apply local configuration before fixing storage paths and cookie names.
 const DATA_DIR = path.join(ROOT, 'data');
 const DB_FILE = process.env.RAPIDX_DB_FILE ? path.resolve(process.env.RAPIDX_DB_FILE) : path.join(DATA_DIR, 'db.json');
 const DB_TMP = `${DB_FILE}.tmp`;
@@ -317,7 +318,8 @@ function verifyPassword(password, stored) {
 }
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const COOKIE_NAME = 'lessrepeat_session';
+const COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'lessrepeat_session';
+if(!/^[A-Za-z0-9_]{1,80}$/.test(COOKIE_NAME))throw new Error('Invalid SESSION_COOKIE_NAME');
 const LEGACY_COOKIE_NAME = 'rxv_sess';
 const MAX_SESSIONS_PER_USER = 5;
 
@@ -362,7 +364,7 @@ function sessionCookie(token) {
 // Build the Set-Cookie header value that clears the session.
 function clearCookie() {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-  return [COOKIE_NAME, LEGACY_COOKIE_NAME].map((name) => `${name}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secure}`);
+  return [COOKIE_NAME,...(COOKIE_NAME==='lessrepeat_session'?[LEGACY_COOKIE_NAME]:[])].map((name) => `${name}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secure}`);
 }
 
 // Parse the request cookie header for our session token.
@@ -372,7 +374,7 @@ function parseCookieToken(req) {
     const idx = part.indexOf('=');
     if (idx === -1) continue;
     const k = part.slice(0, idx).trim();
-    if (k === COOKIE_NAME || k === LEGACY_COOKIE_NAME) return part.slice(idx + 1).trim();
+    if (k === COOKIE_NAME || (COOKIE_NAME==='lessrepeat_session'&&k === LEGACY_COOKIE_NAME)) return part.slice(idx + 1).trim();
   }
   return '';
 }
