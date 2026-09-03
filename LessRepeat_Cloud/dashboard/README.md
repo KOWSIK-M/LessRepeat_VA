@@ -22,7 +22,11 @@ Open `http://localhost:8787` and log in.
 
 ### Create the first account
 
-Open the app and use Sign up to create an isolated tenant. For automated QA or a private admin bootstrap, set `TEST_USER_EMAIL`, a password of at least 12 characters, and optionally `TEST_USER_SUPER_ADMIN=true` before the first start. No shared default credential is shipped.
+Client registration is invitation-only by default. For the initial private admin bootstrap, set `TEST_USER_EMAIL`, a password of at least 12 characters, and `TEST_USER_SUPER_ADMIN=true` before the first start. Sign in at `/admin`, add a client, then share the generated private invitation. The client chooses their own password. No shared default credential or automatic email delivery is shipped.
+
+Use `/admin` for platform management and `/app` for a business workspace. See
+[Admin Console operations](ADMIN-CONSOLE.md) for roles, onboarding, presets,
+plans, database migration, and verification.
 
 ## What "provider agnostic" means
 
@@ -108,6 +112,8 @@ Runs anywhere Node runs. The natural home is the Hostinger VPS so the secret key
 
 ## Important production boundary
 
-The bundled JSON store is suitable for local evaluation, demos, and one Node process. Before accepting customer money or running multiple replicas, move wallets, payment intents, memberships, and audit events to transactional PostgreSQL and complete the unchecked items in [`SAAS-QA-CHECKLIST.md`](SAAS-QA-CHECKLIST.md).
+Configure `LESSREPEAT_DATABASE_URL` to store dashboard collections transactionally in PostgreSQL. The first startup imports the existing JSON data into `lessrepeat.collections`; subsequent starts read PostgreSQL. Cross-process database mutations use a transaction lock. This preserves existing data shapes and is not yet a normalized relational schema. Without this setting, the JSON store remains suitable only for a single Node process.
+
+Before accepting customer money or scaling the service, complete [`SAAS-QA-CHECKLIST.md`](SAAS-QA-CHECKLIST.md), test the carrier and payment flows, configure backups, and centralize rate limiting. Admin plan prices are configuration, not automatic subscription billing. Admission limits do not replace upstream carrier limits or terminate ongoing calls.
 
 Built for LessRepeat. MIT licensed. No em dashes anywhere in this codebase.

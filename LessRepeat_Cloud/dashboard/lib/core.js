@@ -1,12 +1,12 @@
 /**
- * LessRepeat. Core runtime primitives. ZERO npm dependencies.
+ * LessRepeat. Core runtime primitives, with optional PostgreSQL persistence.
  *
  * One file, pure Node. It gives the rest of the server everything that is not
  * provider specific:
  *   - a tiny .env loader (no dotenv)
  *   - http helpers (send, sendJson, readBody, httpsPost, httpsGet)
- *   - a multi-tenant JSON store over data/db.json with ATOMIC writes and a
- *     serial write queue (no torn files, no lost updates under concurrency)
+ *   - a transactional PostgreSQL collection store, or atomic JSON persistence
+ *     for single-process local development
  *   - auth: scrypt password hashing, opaque sessions, an HttpOnly cookie,
  *     getSession + requireAuth (tenant scoped)
  *   - a per-IP token-bucket rate limiter
@@ -150,7 +150,7 @@ function htmlEscape(s) {
 /* ==========================================================================
    4. Multi-tenant JSON store over data/db.json
    - Lazy load once into memory, cached.
-   - Corrupt or missing file falls back to a clean default (try/catch).
+   - Missing files start empty; corrupt files fail closed.
    - ATOMIC writes: serialize to data/db.json.tmp then fs.renameSync into place,
      so a crash mid-write never leaves a half file.
    - A serial write queue funnels every mutation through one promise chain so
@@ -172,6 +172,7 @@ function defaultDb() {
     invoices: [], invoiceEvents: [], integrationRequests: [], agencyPrompts: [],
     clientActivities: [], tenantStatusEvents: [], customVoices: [],
     knowledgeItems: [], contacts: [], automationRules: [],
+    invitations: [], plans: [], callLeases: [], callMeter: [], agentReservations: [],
   };
 }
 
@@ -182,6 +183,7 @@ const COLLECTIONS = [
   'invoices', 'invoiceEvents', 'integrationRequests', 'agencyPrompts',
   'clientActivities', 'tenantStatusEvents', 'customVoices',
   'knowledgeItems', 'contacts', 'automationRules',
+  'invitations', 'plans', 'callLeases', 'callMeter', 'agentReservations',
 ];
 
 function migrateDb(parsed) {
@@ -201,13 +203,35 @@ function migrateDb(parsed) {
 
 let _db = null;        // in-memory cache
 let _writeChain = Promise.resolve(); // serial queue tail
+let _postgres = null;
+
+async function initializeStorage() {
+  if (process.env.LESSREPEAT_DATABASE_URL && process.env.NODE_ENV !== 'test') {
+    const initial = () => structuredClone(loadDb());
+    _postgres = await require('./postgres-store').openPostgresStore(process.env.LESSREPEAT_DATABASE_URL, initial);
+    const migrated = await _postgres.transaction(d => Object.assign(d, migrateDb(d)));
+    _db = migrated.state;
+  }
+}
+function storageMode() { return _postgres ? 'postgresql' : 'json-single-process'; }
+function refreshDb() {
+  if (!_postgres) return Promise.resolve();
+  const run = async () => {
+    const saved = await _postgres.read();
+    if (!saved) throw new Error('Dashboard collections are missing from PostgreSQL');
+    _db = migrateDb(saved);
+  };
+  const next = _writeChain.then(run, run);
+  _writeChain = next.catch(() => {});
+  return next;
+}
 
 function ensureDataDir() {
   try { fs.mkdirSync(path.dirname(DB_FILE), { recursive: true }); } catch (_) {}
 }
 
-// Load db.json into memory. On a missing or corrupt file, return a fresh default
-// (the caller is expected to seed and persist).
+// Load db.json as local storage or the initial PostgreSQL import source.
+// Only a missing file starts empty; unreadable existing data must fail closed.
 function loadDb() {
   if (_db) return _db;
   ensureDataDir();
@@ -216,7 +240,8 @@ function loadDb() {
     const parsed = JSON.parse(raw);
     // Defensive: guarantee every collection exists even if the file is partial.
     _db = migrateDb(parsed);
-  } catch (_) {
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw new Error('Dashboard data cannot be read; refusing to replace existing data');
     _db = defaultDb();
   }
   return _db;
@@ -239,16 +264,20 @@ function flushSync() {
  * atomically after fn runs. Errors inside fn reject without flushing a partial.
  */
 function mutate(fn) {
-  const run = () => new Promise((resolve, reject) => {
-    try {
-      const db = loadDb();
-      const out = fn(db);
-      flushSync();
-      resolve(out);
-    } catch (e) {
-      reject(e);
+  const run = async () => {
+    if (_postgres) {
+      const out = await _postgres.transaction(d => { Object.assign(d, migrateDb(d)); return fn(d); });
+      _db = out.state;
+      return out.result;
     }
-  });
+    const previous = loadDb();
+    const draft = structuredClone(previous);
+    const out = fn(draft);
+    if (out && typeof out.then === 'function') throw new Error('Storage mutations must be synchronous');
+    _db = draft;
+    try { flushSync(); } catch (error) { _db = previous; throw error; }
+    return out;
+  };
   // Chain onto the tail so writes execute one at a time, in order. We swallow
   // the previous result/error for the chain itself but surface this run's own
   // result to the caller.
@@ -403,6 +432,7 @@ async function requireRole(req, res, minimum, handler, body) {
  * Every authed route is therefore tenant scoped via ctx.tenant.id.
  */
 async function requireAuth(req, res, handler, body) {
+  try {
   const ctx = await getSession(req);
   if (!ctx) {
     return send(res, 401, JSON.stringify({ error: 'authentication required', code: 'no_session' }), {
@@ -410,7 +440,12 @@ async function requireAuth(req, res, handler, body) {
       'Set-Cookie': clearCookie(),
     });
   }
-  return handler(req, res, { ...ctx, body });
+  return await handler(req, res, { ...ctx, body });
+  } catch (error) {
+    if (res.headersSent) { res.end(); return; }
+    const status = Number(error.status) || 500;
+    return sendJson(res, status, { error: status < 500 ? error.message : 'Request failed. Please try again.', code: error.code || 'request_failed' });
+  }
 }
 
 /* ==========================================================================
@@ -483,6 +518,7 @@ function genId(prefix) {
 
 module.exports = {
   ROOT, DATA_DIR, DB_FILE, PUBLIC_DIR,
+  initializeStorage, refreshDb, storageMode,
   loadEnv,
   send, sendJson, readBody, httpsPost, httpsGet,
   htmlEscape,

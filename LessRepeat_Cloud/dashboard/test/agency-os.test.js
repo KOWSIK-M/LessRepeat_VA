@@ -157,22 +157,28 @@ test('agency OS APIs complete the lifecycle and preserve tenant isolation', { ti
   assert.equal(wrongSchemePrompt.response.status, 403);
   assert.equal(wrongSchemePrompt.json.code, 'bad_origin');
 
-  const created = await request(admin.cookie, '/api/admin/tenants', {
+  const created = await request(admin.cookie, '/api/admin/console/clients', {
     method: 'POST',
     body: {
       name: 'Northstar Dental Group',
       ownerName: 'Maya Fernandes',
       ownerEmail: CLIENT_EMAIL,
-      password: CLIENT_PASSWORD,
+      planId: 'studio',
     },
   });
   assert.equal(created.response.status, 201, created.json.error);
-  assert.equal(created.json.tenant.name, 'Northstar Dental Group');
-  assert.equal(created.json.tenant.status, 'active');
-  assert.equal(created.json.owner.email, CLIENT_EMAIL);
-  assert.equal(created.json.owner.role, 'owner');
-  assert.equal(created.json.note, 'No email was sent.');
-  const clientTenantId = created.json.tenant.id;
+  assert.equal(created.json.client.name, 'Northstar Dental Group');
+  assert.equal(created.json.client.status, 'active');
+  assert.equal(created.json.client.owner.email, CLIENT_EMAIL);
+  assert.equal(created.json.client.owner.role, 'owner');
+  assert.equal(created.json.client.owner.status, 'invited');
+  assert.equal(created.json.invitation.deliveryStatus, 'not_sent');
+  const clientTenantId = created.json.client.id;
+  const invitationToken = created.json.invitation.path.split('#')[1];
+  const activated = await request('', '/api/invitations/accept', {method:'POST',body:{token:invitationToken,password:CLIENT_PASSWORD}});
+  assert.equal(activated.response.status,200,activated.json.error);
+  const reused = await request('', '/api/invitations/accept', {method:'POST',body:{token:invitationToken,password:CLIENT_PASSWORD}});
+  assert.equal(reused.response.status,410);
 
   const approached = await request(admin.cookie, '/api/admin/client-approach', {
     method: 'POST',

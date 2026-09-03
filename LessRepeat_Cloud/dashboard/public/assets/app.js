@@ -273,34 +273,34 @@ function renderAuth() {
         el('span', { class: 'nm' }, 'LessRepeat')
       ]),
       el('div', { class: 'auth-heading' }, [
-        el('span', { class: 'section-kicker' }, mode === 'login' ? 'Secure operator access' : 'New workspace'),
+        el('span', { class: 'section-kicker' }, mode === 'login' ? 'Your business workspace' : 'New workspace'),
         el('h1', {}, mode === 'login' ? 'Welcome back.' : 'Run the whole agency.'),
-        el('p', { class: 'sub' }, mode === 'login' ? 'Clients, money, voice agents, invoices, and operations in one place.' : 'Create an isolated workspace for AI voice operations. Telephony and carrier charges remain separate.')
+        el('p', { class: 'sub' }, mode === 'login' ? 'Manage your voice agents, review customer calls, and follow up on new leads.' : 'Create an isolated workspace for AI voice operations. Telephony and carrier charges remain separate.')
       ]),
       form,
       el('div', { class: 'auth-toggle' }, [
-        document.createTextNode(mode === 'login' ? 'Need a new workspace? ' : 'Already have a workspace? '),
-        el('button', { type: 'button', onclick: () => { mode = mode === 'login' ? 'signup' : 'login'; draw(); } }, mode === 'login' ? 'Create account' : 'Sign in')
+        document.createTextNode('New here? Ask your administrator for a workspace invitation. '),
+        el('a', { href: '/admin' }, 'Admin sign in')
       ]),
-      mode === 'login' ? el('div', { class: 'auth-demo' }, [el('span', { class: 'auth-demo-dot' }), el('span', {}, 'Use your workspace credentials. Admin access is role-gated and audited.')]) : null
+      mode === 'login' ? el('div', { class: 'auth-demo' }, [el('span', { class: 'auth-demo-dot' }), el('span', {}, 'Sign in with the email and password you activated through your invitation.')]) : null
     ]);
 
     const proofPanel = el('aside', { class: 'auth-proof-panel' }, [
       el('div', { class: 'auth-grid-pattern', 'aria-hidden': 'true' }),
       el('div', { class: 'auth-proof-top' }, [
-        el('span', { class: 'auth-proof-label' }, 'Agency command centre'),
-        el('span', { class: 'auth-live-pill' }, [el('span', {}), 'Voice stack online'])
+        el('span', { class: 'auth-proof-label' }, 'Made for your business'),
+        el('span', { class: 'auth-live-pill' }, [el('span', {}), 'AI voice workspace'])
       ]),
       el('div', { class: 'auth-proof-copy' }, [
-        el('h2', {}, 'One operating system. Every client signal.'),
-        el('p', {}, 'Know what is live, what is owed, which clients need attention, and what the team should do next.')
+        el('h2', {}, 'Every conversation. A clearer next step.'),
+        el('p', {}, 'Keep your business knowledge, voice agents, recordings and customer follow-ups together in one private workspace.')
       ]),
       el('div', { class: 'auth-proof-metrics' }, [
-        el('div', {}, [el('strong', {}, '₹'), el('span', {}, 'Invoice and wallet clarity')]),
-        el('div', {}, [el('strong', {}, '24/7'), el('span', {}, 'Voice agent operations')]),
-        el('div', {}, [el('strong', {}, '100%'), el('span', {}, 'Audited admin actions')])
+        el('div', {}, [el('strong', {}, 'Voice'), el('span', {}, 'Business-specific agents')]),
+        el('div', {}, [el('strong', {}, 'Calls'), el('span', {}, 'Recordings and outcomes')]),
+        el('div', {}, [el('strong', {}, 'Leads'), el('span', {}, 'Organized follow-ups')])
       ]),
-      el('div', { class: 'auth-capabilities' }, ['Client lifecycle', 'Invoices', 'AI voice agents', 'WhatsApp ready', 'Ad research ready'].map((label) => el('span', {}, label)))
+      el('div', { class: 'auth-capabilities' }, ['AI voice agents', 'Knowledge base', 'Call recordings', 'Customer leads'].map((label) => el('span', {}, label)))
     ]);
 
     root.innerHTML = '';
@@ -363,23 +363,22 @@ function resetData() {
    =========================================================================== */
 const ROUTES = [
   { id: 'overview', label: 'Overview', icon: 'grid' },
-  { id: 'agents', label: 'Agents', icon: 'users' },
-  { id: 'presets', label: 'Presets', icon: 'template' },
-  { id: 'studio', label: 'Voice Studio', icon: 'wave' },
-  { id: 'knowledge', label: 'Knowledge Base', icon: 'book' },
+  { id: 'agents', label: 'My Agents', icon: 'users', ownerOnly: true },
+  { id: 'presets', label: 'Agent Templates', icon: 'template', ownerOnly: true },
+  { id: 'studio', label: 'Voice Studio', icon: 'wave', ownerOnly: true },
+  { id: 'knowledge', label: 'Knowledge Base', icon: 'book', ownerOnly: true },
   { id: 'analytics', label: 'Calls & Recordings', icon: 'chart' },
   { id: 'contacts', label: 'Contacts & Leads', icon: 'contact' },
-  { id: 'automation', label: 'Automation', icon: 'bolt' },
+  { id: 'automation', label: 'Automation', icon: 'bolt', ownerOnly: true },
   { id: 'demos', label: 'Demo links', icon: 'link', ownerOnly: true },
   { id: 'talk', label: 'Talk to it', icon: 'mic' },
-  { id: 'telephony', label: 'Telephony', icon: 'phone' },
+  { id: 'telephony', label: 'Telephony', icon: 'phone', ownerOnly: true },
   { id: 'invoices', label: 'Invoices', icon: 'invoice', ownerOnly: true },
   { id: 'integrations', label: 'Integrations', icon: 'plug', ownerOnly: true },
   { id: 'agency-prompt', label: 'Agency prompt', icon: 'prompt', ownerOnly: true },
-  { id: 'billing', label: 'Billing', icon: 'wallet' },
+  { id: 'billing', label: 'Usage & Plan', icon: 'wallet', ownerOnly: true },
   { id: 'support', label: 'Support', icon: 'support' },
-  { id: 'admin', label: 'Clients', icon: 'shield', adminOnly: true },
-  { id: 'settings', label: 'Settings', icon: 'gear' }
+  { id: 'settings', label: 'Business Settings', icon: 'gear', ownerOnly: true }
 ];
 
 function navIcon(name) {
@@ -409,6 +408,9 @@ function navIcon(name) {
 }
 
 function renderShell() {
+  if (isPlatformUserClient(State.me.user) && !new URLSearchParams(location.search).has('workspace')) {
+    location.replace('/admin'); return;
+  }
   const root = $('#app');
   root.removeAttribute('aria-busy');
   const t = State.me.tenant, u = State.me.user;
@@ -429,11 +431,12 @@ function renderShell() {
     ]),
     nav,
     el('div', { class: 'side-foot' }, [
+      isPlatformUserClient(u) ? el('a', { href: '/admin', class: 'btn btn-ghost' }, 'Back to Admin Console') : null,
       el('div', { class: 'tenant-chip' }, [
         el('div', { class: 'av' }, initials(t.name)),
         el('div', { class: 'meta' }, [
           el('div', { class: 'tn', title: t.name }, t.name),
-          el('div', { class: 'tp' }, (t.plan || 'studio') + ' plan')
+          el('div', { class: 'tp' }, (t.planName || t.plan || 'Studio') + ' plan')
         ])
       ]),
       el('button', { class: 'side-logout', type: 'button', title: 'Sign out of LessRepeat', onclick: doLogout, html: navIcon('logout') + '<span>Sign out</span>' })
@@ -444,7 +447,7 @@ function renderShell() {
     el('div', { class: 'flex items-center gap-2', style: 'min-width:0' }, [
       el('button', { class: 'menu-btn', 'aria-label': 'Menu', onclick: () => $('.shell').classList.toggle('nav-open'), html: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>' }),
       el('div', { class: 'top-route' }, [
-        el('span', { class: 'crumb' }, isPlatformUserClient(u) ? 'Agency command centre' : 'LessRepeat Studio'),
+        el('span', { class: 'crumb' }, 'Business workspace'),
         el('span', { class: 'ttl', id: 'routeTitle' }, 'Overview')
       ])
     ]),
@@ -571,7 +574,6 @@ function viewHead(title, sub) {
    1. OVERVIEW
    =========================================================================== */
 async function viewOverview(root) {
-  if (isPlatformUserClient(State.me && State.me.user)) return viewAgencyOverview(root);
   return viewTenantOverview(root);
 }
 
@@ -906,7 +908,6 @@ function buildAgentForm(existing) {
     el('button', { type: 'button', class: m === state.model ? 'on' : '', 'data-m': m, onclick: () => {
       state.model = m;
       state.provider = m === 'kokoro' ? 'kokoro' : (m === GEMINI_TTS_MODEL ? 'gemini_tts' : 'rumik');
-      if (m === GEMINI_TTS_MODEL) languageSel.value = 'te-IN';
       syncVoice(true);
     } }, m === 'kokoro' ? 'Kokoro free' : (m === GEMINI_TTS_MODEL ? 'Gemini Telugu preview' : m))
   ));
@@ -1099,9 +1100,24 @@ function agentCard(a) {
       previewBtn,
       el('button', { class: 'btn btn-ghost btn-sm', onclick: () => openAgentWorkflow(a) }, 'Workflow'),
       el('button', { class: 'btn btn-ghost btn-sm', onclick: () => openEditAgent(a) }, 'Edit'),
+      el('button', { class: 'btn btn-ghost btn-sm', onclick: () => changeAgentLanguage(a) }, 'Language'),
       el('button', { class: 'btn btn-ghost btn-sm', onclick: () => confirmDeleteAgent(a) }, 'Delete')
     ])
   ]);
+}
+
+function changeAgentLanguage(agent) {
+  const options=[['en-IN','English (India)'],['te-IN','తెలుగు (Telugu)'],['hi-IN','हिन्दी (Hindi)'],['hinglish','Hinglish'],['ta-IN','Tamil'],['kn-IN','Kannada'],['ml-IN','Malayalam'],['mr-IN','Marathi'],['bn-IN','Bengali'],['gu-IN','Gujarati']];
+  if(agent.language&&!options.some(([code])=>code===agent.language))options.push([agent.language,agent.language]);
+  const language=el('select',{class:'select','aria-label':'Primary language'},options.map(([value,label])=>el('option',{value,selected:value===(agent.language||'en-IN')},label)));
+  const greeting=el('textarea',{class:'input',rows:3,'aria-label':'Greeting'},agent.greeting||'');
+  modal({title:'Language · '+agent.name,body:el('div',{},[
+    field('Primary language',language),field('Greeting (optional)',greeting),
+    el('p',{class:'muted'},'This is the opening language, not a language lock. Callers can ask to switch languages and switch back during the same call without restarting their enquiry. Saved details stay with that call. A mismatched greeting is replaced with a default; review it after saving. Live calls use Dograh speech; supported languages and pronunciation depend on its speech providers. Local Kokoro remains available for previews.')
+  ]),confirmText:'Save language',onConfirm:async()=>{
+    await api('/api/agents/update',{method:'POST',body:{id:agent.id,language:language.value,greeting:greeting.value}});
+    await ensureAgents(true);paintAgents();toast('Language saved and voice workflows republished.','ok');
+  }});
 }
 
 function openAgentWorkflow(agent) {
@@ -1728,6 +1744,15 @@ async function viewTalk(root) {
   let reconnectAttempts = 0;
   let isSpeaking = false;
   let voiceTransport = 'browser';
+  let leaseToken = null;
+  let connectionTimer = null;
+  let attemptId = 0;
+  function notifyLease(token, action) {
+    if (!token) return Promise.resolve();
+    return fetch('/api/voice/lease', {method:'POST', keepalive:true,
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({token,action})})
+      .then(r => {if (!r.ok) throw new Error('Call reservation expired. Please try again.');});
+  }
   let voiceAudio = null;
   let voiceRequest = null;
 
@@ -1802,7 +1827,12 @@ async function viewTalk(root) {
   }
 
   function stopCall(message) {
+    attemptId++;
+    clearTimeout(connectionTimer); connectionTimer = null;
+    const endedLease = leaseToken; leaseToken = null;
+    notifyLease(endedLease,'ended').catch(() => {});
     setButton(false);
+    if (ws) ws.onclose = ws.onmessage = ws.onopen = ws.onerror = null;
     if (ws && ws.readyState < 2) { try { ws.close(); } catch (_) {} }
     ws = null;
     if (pc) { try { pc.getSenders().forEach((s) => s.track && s.track.stop()); pc.close(); } catch (_) {} }
@@ -1892,6 +1922,7 @@ async function viewTalk(root) {
 
   async function startCall() {
     if (running || !State.activeAgentId) return;
+    const attempt = ++attemptId;
     setButton(true); setPhase('connecting', 'Connecting realtime call');
     clickTime = Date.now();
     dConn.textContent = '-';
@@ -1906,8 +1937,13 @@ async function viewTalk(root) {
     window.addEventListener('keydown', handleKeys);
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const microphone = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (attempt !== attemptId) { microphone.getTracks().forEach(t => t.stop()); return; }
+      stream = microphone;
       const session = await api('/api/voice/session', { method: 'POST', timeoutMs: 15000, body: { agentId: State.activeAgentId } });
+      if (attempt !== attemptId) { notifyLease(session.leaseToken,'ended').catch(() => {}); return; }
+      leaseToken = session.leaseToken;
+      connectionTimer = setTimeout(() => {stopCall('Connection timed out'); toast('The call could not connect. Your call slot has been released; try again.','err');},45000);
       voiceTransport = session.voiceTransport || 'browser';
 
       const turn = session.turnCredentials || { uris: [] };
@@ -1926,14 +1962,18 @@ async function viewTalk(root) {
         if (!pc) return;
         console.log('Rumik WebRTC state', pc.connectionState, pc.iceConnectionState);
         timingText.textContent = 'WebRTC ' + pc.connectionState + ' · ICE ' + pc.iceConnectionState;
-        if (pc.connectionState === 'connected') { setPhase('listening', 'Live call connected'); }
+        if (pc.connectionState === 'connected') {
+          clearTimeout(connectionTimer); connectionTimer = null;
+          notifyLease(session.leaseToken,'connected').catch(error => {if (attempt === attemptId) {stopCall(); toast(error.message,'err');}});
+          setPhase('listening', 'Live call connected');
+        }
         if (pc.connectionState === 'failed') { setPhase('error', 'Connection failed'); stopCall('Connection failed'); }
       };
 
       peerId = securePeerId();
 
       function connectWss() {
-        if (!running) return;
+        if (!running || attempt !== attemptId) return;
         ws = new WebSocket(session.signalingUrl);
         ws.onmessage = async (event) => {
           try { await handleSignal(JSON.parse(event.data)); }
@@ -1969,6 +2009,7 @@ async function viewTalk(root) {
       };
 
     } catch (error) {
+      if (attempt !== attemptId) return;
       stopCall('Could not connect');
       setPhase('error', 'Needs attention');
       appendBubble('sys', error.message || 'Could not start the realtime voice call.');
@@ -2162,6 +2203,7 @@ async function viewPresets(root) {
   try {
     const out = await api('/api/presets');
     State.presets = out.presets || [];
+    if (out.starterPresetId) State.presets.sort((a,b) => Number(b.id === out.starterPresetId) - Number(a.id === out.starterPresetId));
     host.innerHTML = '';
     State.presets.forEach((p) => {
       const privacy = p.recommendedPrivacyMode || p.privacyMode || 'standard';
@@ -2171,7 +2213,8 @@ async function viewPresets(root) {
           el('h3', { class: 't-h3' }, p.name),
           el('span', { class: 'badge-ready' }, privacy.replace(/_/g, ' '))
         ]),
-        el('p', { class: 'muted' }, p.description || 'Editable voice-agent starting point.'),
+        p.id === out.starterPresetId ? el('span', { class: 'badge-ready' }, 'Recommended for your business') : null,
+        el('p', { class: 'muted' }, p.description || (p.persona || '').slice(0, 160) || 'Editable voice-agent starting point.'),
         el('div', { class: 'preset-meta' }, [
           el('span', {}, p.category || 'Voice agent'),
           el('span', {}, 'BYON ready')
@@ -2414,7 +2457,16 @@ function paintAgencyPrompt(host, data) {
 }
 
 async function viewBilling(root) {
-  root.appendChild(viewHead('Billing', 'Prepaid INR wallet, immutable transaction history, and secure PayU checkout.'));
+  root.appendChild(viewHead('Usage & Plan', 'Your workspace plan, included usage and billing.'));
+  try {
+    const summary = await api('/api/workspace/plan');
+    root.appendChild(el('section', { class: 'card card-pad', style: 'margin-bottom:20px' }, [
+      el('h3', {}, summary.plan.name + ' plan'),
+      el('p', {}, summary.usage.minutes + ' / ' + summary.plan.includedMinutes + ' minutes this month'),
+      el('p', {}, summary.usage.agents + ' / ' + summary.plan.maxAgents + ' agents · ' + summary.plan.maxConcurrentCalls + ' simultaneous calls'),
+      el('p', { class: 'muted' }, summary.trialEndsAt ? 'Trial ends ' + new Date(summary.trialEndsAt).toLocaleDateString() : 'Contact your administrator to change your plan.'),
+    ]));
+  } catch (error) { root.appendChild(el('p', { class: 'muted' }, error.message)); }
   const host = el('div', { class: 'grid grid-12' }, [
     el('section', { class: 'card card-pad', id: 'walletSummary' }, skeleton('sk-card', 1)),
     el('section', { class: 'card card-pad', id: 'walletLedger' }, skeleton('sk-card', 1))
@@ -2426,7 +2478,7 @@ async function viewBilling(root) {
     const sum = $('#walletSummary'); sum.innerHTML = '';
     sum.appendChild(el('div', { class: 'muted' }, 'Available credit'));
     sum.appendChild(el('div', { class: 'wallet-big' }, ['₹' + fmtInr(wallet.balanceInr != null ? wallet.balanceInr : (wallet.balancePaise || 0) / 100), el('small', {}, ' INR') ]));
-    sum.appendChild(el('p', { class: 'muted' }, 'New accounts receive a one-time ₹10 trial credit. Voice and carrier usage are deducted separately according to the live rate card.'));
+    sum.appendChild(el('p', { class: 'muted' }, 'Wallet credits are separate from your assigned plan. Contact your administrator for billing questions.'));
     const packs = [{ id: 'starter', inr: 200 }, { id: 'growth', inr: 500 }, { id: 'scale', inr: 1000 }];
     sum.appendChild(el('div', { class: 'pack-row' }, packs.map((pack) => el('button', { class: 'btn btn-ghost', onclick: () => startRecharge(pack.id) }, 'Add ₹' + fmtInr(pack.inr)))));
     const ledger = $('#walletLedger'); ledger.innerHTML = '';
@@ -2555,16 +2607,7 @@ function adminTenantRow(t, users) {
   ]);
 }
 
-function openClientComposer() {
-  const name = el('input', { class: 'input', placeholder: 'Client or company name' });
-  const ownerName = el('input', { class: 'input', placeholder: 'Primary owner name, optional' });
-  const ownerEmail = el('input', { class: 'input', type: 'email', placeholder: 'owner@client.com, optional' });
-  const password = el('input', { class: 'input', type: 'password', placeholder: '12+ character temporary password' });
-  modal({ title: 'Add client workspace', body: el('div', { class: 'invoice-form' }, [field('Workspace name', name), field('Owner name', ownerName), field('Owner email', ownerEmail), field('Temporary password', password), el('p', { class: 'form-note' }, 'Leave owner fields empty to create an onboarding workspace. No invitation email will be sent.')]), confirmText: 'Create workspace', onConfirm: async () => {
-    const out = await api('/api/admin/tenants', { method: 'POST', body: { name: name.value.trim(), ownerName: ownerName.value.trim(), ownerEmail: ownerEmail.value.trim(), password: password.value } });
-    toast((out.tenant || {}).name + ' created. ' + out.note, 'ok'); onRoute();
-  }});
-}
+function openClientComposer() { window.location.assign('/admin#/clients'); }
 
 function openClientApproach(t) {
   const channel = el('select', { class: 'select' }, ['whatsapp','email','phone','linkedin','meeting','other'].map((value) => el('option', { value }, invoiceStatusLabel(value))));
@@ -2814,10 +2857,10 @@ function deleteResource(item, endpoint, reload) { modal({ title: 'Delete ' + (it
    SETTINGS
    =========================================================================== */
 async function viewSettings(root) {
-  root.appendChild(viewHead('Settings', 'Company profile, team access, API configuration, billing, and security.'));
+  root.appendChild(viewHead('Business Settings', 'Company profile, team access, billing, and privacy. Platform infrastructure is managed by your administrator.'));
 
   const provHost = el('div', { id: 'provHost' }, skeleton('sk-card', 3));
-  root.appendChild(provHost);
+  if (isPlatformUserClient(State.me.user)) root.appendChild(provHost);
 
   const t = State.me.tenant;
   const nameI = el('input', { class: 'input', id: 'set_name', type: 'text', value: t.name || '' });
@@ -2893,8 +2936,10 @@ async function viewSettings(root) {
   ]).catch(() => {});
 
   try {
-    const reg = await ensureProviders();
-    paintProviders(provHost, reg);
+    if (isPlatformUserClient(State.me.user)) {
+      const reg = await ensureProviders();
+      paintProviders(provHost, reg);
+    }
   } catch (e) {
     provHost.innerHTML = '';
     provHost.appendChild(el('div', { class: 'card card-pad muted' }, 'Could not load providers. ' + esc(e.message)));

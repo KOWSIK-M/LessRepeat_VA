@@ -25,9 +25,13 @@ const core = require('./lib/core');
 core.loadEnv();
 
 const providers = require('./lib/providers');
+const { collectOutcome, normalizePhoneDigits } = require('./lib/call-outcomes');
 const payu = require('./lib/payu');
 const demoLinks = require('./lib/demo-links');
 const dograh = require('./lib/dograh');
+const adminConsole = require('./lib/admin-console');
+const callMeter = require('./lib/call-meter');
+const consoleApi = adminConsole.createConsole({ providers, get defaultProviders() { return DEFAULT_PROVIDERS; }, publicAgent, normalizeTts: normalizeAgentTts, createAgent: apiAgentsCreate, updateAgent: apiAgentsUpdate });
 const { DEFAULT_OUTCOME_FIELDS, normalizeOutcomeSchema, buildAgentConfiguration, buildDograhWorkflowDefinition } = require('./lib/agent-workflow');
 
 const PORT = parseInt(process.env.PORT || '8787', 10);
@@ -108,9 +112,11 @@ function normalizeAgentTts(input, fallback = {}) {
   };
 }
 
-function dograhVoiceConfigurations(tts) {
+function dograhVoiceConfigurations(tts, language = 'en-IN') {
+  // A call can switch languages at any time. Local English Kokoro voices stay
+  // available for previews, but live calls need the multilingual Dograh path.
+  if (tts && tts.provider === 'kokoro') return {};
   if (!tts || !['kokoro', 'gemini_tts'].includes(tts.provider)) return {};
-  const preset = kokoroPreset(tts.speaker);
   if (tts.provider === 'gemini_tts') {
     // Gemini Live can close an otherwise healthy call with resource_exhausted
     // when the account has no realtime quota. Keep production/demo calls on
@@ -129,7 +135,7 @@ function dograhVoiceConfigurations(tts) {
               api_key: geminiKey,
               model: String(process.env.GEMINI_LIVE_MODEL || GEMINI_LIVE_MODEL),
               voice: GEMINI_LIVE_VOICE_MAP[tts.speaker] || 'Puck',
-              language: 'te',
+              language: language.split('-')[0],
               temperature: 0.35,
             },
             llm: {
@@ -142,31 +148,7 @@ function dograhVoiceConfigurations(tts) {
       },
     };
   }
-  const ttsConfiguration = {
-    provider: 'speaches', api_key: 'none', model: 'kokoro',
-    voice: tts.speaker || KOKORO_DEFAULT_VOICE,
-    base_url: String(process.env.KOKORO_DOGRAH_BASE_URL || 'http://kokoro-tts:8880/v1'), speed: Number(tts.speed || (preset && preset.speed) || 1),
-  };
-  return {
-    model_configuration_v2_override: {
-      version: 2,
-      mode: 'byok',
-      byok: {
-        mode: 'pipeline',
-        pipeline: {
-          llm: {
-            provider: 'groq', api_key: String(process.env.GROQ_API_KEY || ''),
-            model: String(process.env.GROQ_MODEL || 'openai/gpt-oss-20b'),
-          },
-          stt: {
-            provider: 'deepgram', api_key: String(process.env.DEEPGRAM_API_KEY || ''),
-            model: String(process.env.DEEPGRAM_MODEL || 'nova-3-general'), language: 'multi',
-          },
-          tts: ttsConfiguration,
-        },
-      },
-    },
-  };
+  return {};
 }
 
 function demoVoiceTts(tts) {
@@ -309,6 +291,7 @@ function migrateLegacyAgent(legacy, tenantId) {
 }
 
 async function boot() {
+  await core.initializeStorage();
   // Force a load so a missing/corrupt db.json resolves to a clean default.
   const existing = core.db();
   await core.mutate((d) => {
@@ -389,7 +372,7 @@ function publicUser(u) {
 function publicTenant(t) {
   return {
     id: t.id, name: t.name, slug: t.slug, createdAt: t.createdAt,
-    branding: t.branding, providers: t.providers, plan: t.plan,
+    branding: t.branding, providers: t.providers, plan: t.plan, planName: adminConsole.planFor(core.db(), t).name,
     status: t.status, privacyMode: t.privacyMode,
   };
 }
@@ -478,6 +461,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const INDIAN_VOICE_PROFILE_IDS = new Set(['indian-neutral', 'indian-professional', 'indian-warm', 'hinglish-natural']);
 
 async function apiSignup(req, res, body) {
+  if (process.env.ALLOW_PUBLIC_SIGNUP !== 'true') return core.sendJson(res, 403, { error: 'Workspaces are created by your administrator. Please request an invitation.', code: 'invitation_required' });
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
   const name = String(body.name || '').trim().slice(0, 80) || 'Owner';
@@ -617,7 +601,7 @@ async function syncTenantVoiceWorkflows(tenantId, database = core.db()) {
   const results = await Promise.allSettled(agents.map((agent) => {
     const configuration = buildAgentConfiguration({ name: agent.name, persona: agent.persona, greeting: agent.greeting, language: agent.language, outcomeSchema: agentOutcomeSchema(agent, database) });
     const definition = buildDograhWorkflowDefinition(configuration, context);
-    const updates = [dograh.updateWorkflow(Number(agent.dograh.workflowId), configuration.name, definition, dograhVoiceConfigurations(agent.tts))];
+    const updates = [dograh.updateWorkflow(Number(agent.dograh.workflowId), configuration.name, definition, dograhVoiceConfigurations(agent.tts, configuration.language))];
     if (Number.isInteger(Number(agent.dograh.demoWorkflowId)) && Number(agent.dograh.demoWorkflowId) > 0) {
       updates.push(dograh.updateWorkflow(Number(agent.dograh.demoWorkflowId), `${configuration.name} - Demo`, definition, dograhVoiceConfigurations(demoVoiceTts(agent.tts))));
     }
@@ -712,7 +696,7 @@ async function apiAgentsCreate(req, res, ctx) {
     ? core.db().presets.find(
         (p) =>
           p.id === String(b.presetId) &&
-          (p.isSystem || p.tenantId === ctx.tenant.id)
+          adminConsole.canUsePreset(p, ctx.tenant.id)
       )
     : null;
 
@@ -723,7 +707,7 @@ async function apiAgentsCreate(req, res, ctx) {
     });
   }
 
-  const normalizedTts = normalizeAgentTts(b.tts);
+  const normalizedTts = normalizeAgentTts(b.tts, (preset && preset.tts) || {});
   const customVoice = (core.db().customVoices || []).find((voice) => voice.id === normalizedTts.customVoiceId && voice.tenantId === ctx.tenant.id);
   if (customVoice) Object.assign(normalizedTts, normalizeAgentTts(customVoice, normalizedTts), { customVoiceId: customVoice.id });
 
@@ -740,7 +724,7 @@ async function apiAgentsCreate(req, res, ctx) {
         dograhWorkflow.id,
         configuration.name,
         buildDograhWorkflowDefinition(configuration, tenantVoiceContext(ctx.tenant.id)),
-        dograhVoiceConfigurations(normalizedTts)
+        dograhVoiceConfigurations(normalizedTts, configuration.language)
       );
     }
     dograhEmbed = await dograh.createEmbedToken(dograhWorkflow.id, { expiresInDays: 30 });
@@ -764,7 +748,7 @@ async function apiAgentsCreate(req, res, ctx) {
     greeting: configuration.greeting,
 
     industry: String(b.industry || (preset && preset.category) || 'general').trim().slice(0, 50),
-    language: String(b.language || 'en-IN').trim().slice(0, 20),
+    language: configuration.language,
 
     presetId: preset ? preset.id : null,
 
@@ -827,7 +811,7 @@ async function apiAgentsUpdate(req, res, ctx) {
         Number(agent.dograh.workflowId),
         configuration.name,
         buildDograhWorkflowDefinition(configuration, tenantVoiceContext(ctx.tenant.id, d)),
-        dograhVoiceConfigurations(nextTts)
+        dograhVoiceConfigurations(nextTts, configuration.language)
       );
       if (Number.isInteger(Number(agent.dograh.demoWorkflowId)) && Number(agent.dograh.demoWorkflowId) > 0) {
         await dograh.updateWorkflow(
@@ -982,6 +966,17 @@ async function apiStt(req, res, ctx) {
 }
 
 async function mintDograhVoiceSession(req, context) {
+  await callMeter.refresh(context.tenantId, true);
+  const lease = await adminConsole.reserveCall(context.tenantId);
+  try {
+    const session = await mintDograhVoiceSessionUnchecked(req, context);
+    if (!session.workflowRunId) throw new Error('Call session did not return a run identifier');
+    const leaseToken = await adminConsole.bindBrowserCall(lease.id, session.workflowRunId, session.workflowId, context.maxSessionSeconds);
+    return { ...session, leaseToken };
+  } catch (error) { await adminConsole.releaseCall(lease.id); throw error; }
+}
+
+async function mintDograhVoiceSessionUnchecked(req, context) {
   const token = String(context.embedToken || '').trim();
   const base = String(process.env.DOGRAH_BASE_URL || '').replace(/\/$/, '');
   if (!token || !base) {
@@ -1055,7 +1050,7 @@ async function apiVoiceSession(req, res, ctx) {
     const session = await mintDograhVoiceSession(req, {
       source: 'agent_test', tenantId: ctx.tenant.id, agentId: agent.id, embedToken,
     });
-    core.sendJson(res, 200, { ...session, voiceTransport: agent.tts && ['kokoro', 'gemini_tts'].includes(agent.tts.provider) ? 'dograh' : 'browser' });
+    core.sendJson(res, 200, { ...session, voiceTransport: 'dograh' });
   } catch (error) {
     core.sendJson(res, error.status || 502, { error: error.message || 'Dograh realtime voice session failed', code: error.code || 'voice_session_failed' });
   }
@@ -1245,7 +1240,11 @@ async function apiPublicDemoSession(req, res, token) {
 }
 
 // GET /api/telephony/status -> VoBiz configuration status from Dograh.
-async function apiTelephonyStatus(req, res) {
+async function apiTelephonyStatus(req, res, ctx) {
+  if (ctx && !adminConsole.platform(ctx.user)) {
+    const dids = core.db().byonConnections.filter(n => n.tenantId === ctx.tenant.id).map(n => ({ number:n.address, label:n.label, status:n.status }));
+    return core.sendJson(res,200,{provider:'vobiz',orchestrator:'dograh',dids,configured:dids.some(n=>n.status==='verified'),note:'Number activation is managed by your administrator.'});
+  }
   try {
     const status = await providers.telephony.status();
     core.sendJson(res, 200, { ...status, provider: 'vobiz', orchestrator: 'dograh' });
@@ -1284,11 +1283,22 @@ async function apiTelephonyDial(req, res, ctx) {
     }
   }
   try {
+    await callMeter.refresh(ctx.tenant.id, true);
+    // Carrier-originated inbound calls need matching upstream limits too.
+    const lease = await adminConsole.reserveCall(ctx.tenant.id, workflowId);
+    try {
     const r = await providers.telephony.dial(b.number, { workflowId });
+    if (r.status >= 400) { await adminConsole.releaseCall(lease.id); }
+    else {
+      const runId = r.data && (r.data.workflow_run_id || r.data.run_id);
+      if (runId) await adminConsole.bindCall(lease.id, runId, workflowId);
+    }
     // Count the dial attempt against today's usage.
     bumpUsage(ctx.tenant.id, 'calls', 1).catch(() => {});
     core.sendJson(res, r.status, r.data);
+    } catch (error) { await adminConsole.releaseCall(lease.id); throw error; }
   } catch (e) {
+    if (e.status && !(e instanceof providers.ProviderError)) return core.sendJson(res,e.status,{error:e.message,code:e.code||'call_not_allowed'});
     handleProviderError(res, e);
   }
 }
@@ -1319,8 +1329,8 @@ function apiUsage(req, res, ctx) {
 }
 
 function apiPresets(req, res, ctx) {
-  const presets = core.db().presets.filter((p) => p.isSystem || p.tenantId === ctx.tenant.id);
-  core.sendJson(res, 200, { presets });
+  const presets = core.db().presets.filter((p) => adminConsole.canUsePreset(p, ctx.tenant.id)).map(p => ({ ...p, allowedTenantIds: undefined }));
+  core.sendJson(res, 200, { presets, starterPresetId: ctx.tenant.starterPresetId || null });
 }
 
 function apiWallet(req, res, ctx) {
@@ -2002,15 +2012,13 @@ async function collectTenantCalls(tenantId) {
       const duration = Number(usage.call_duration_seconds || usage.duration_seconds || run.duration_seconds || 0);
       const context = run.gathered_context && typeof run.gathered_context === 'object' ? run.gathered_context : {};
       const extracted = context.extracted_variables && typeof context.extracted_variables === 'object' ? context.extracted_variables : {};
-      const collected = Object.fromEntries(outcomeSchema.map((field) => [field, context[field.key] !== undefined ? context[field.key] : extracted[field.key]])
-        .filter(([, value]) => value !== undefined && value !== null && value !== '')
-        .map(([field, value]) => [field.key, value]));
+      const collected = collectOutcome(outcomeSchema, context);
       return {
         id: String(run.id), workflowId, source, agentId: agent.id, agentName: agent.name, mode: source === 'demo' ? 'demo' : (run.mode || run.call_type || 'web'),
         status: run.is_completed ? 'completed' : 'in_progress', createdAt: run.created_at, durationSeconds: duration,
         disposition: String(run.disposition || context.disposition || extracted.disposition || context.outcome || extracted.outcome || (run.is_completed ? 'completed' : 'in_progress')),
-        callerName: String(context.caller_name || extracted.caller_name || context.name || extracted.name || ''),
-        phone: String(context.callback_number || extracted.callback_number || context.phone || extracted.phone || ''),
+        callerName: String(collected.caller_name || context.caller_name || extracted.caller_name || context.name || extracted.name || ''),
+        phone: normalizePhoneDigits(collected.callback_number || context.callback_number || extracted.callback_number || context.phone || extracted.phone || ''),
         transcriptUrl: run.transcript_public_url || '', recordingUrl: run.recording_public_url || '',
         userRecordingUrl: run.user_recording_public_url || '', botRecordingUrl: run.bot_recording_public_url || '',
         outcomeSchema, collected,
@@ -2094,35 +2102,6 @@ function apiAdminTenants(req, res) {
   })) });
 }
 
-async function apiAdminTenantCreate(req, res, ctx) {
-  if (rejectImpersonated(res, ctx)) return;
-  const b = ctx.body || {};
-  const name = String(b.name || '').trim().slice(0, 80);
-  const ownerEmail = String(b.ownerEmail || '').trim().toLowerCase().slice(0, 160);
-  const password = String(b.password || '');
-  if (!name) return core.sendJson(res, 422, { error: 'client workspace name required', code: 'bad_tenant' });
-  if (ownerEmail && (!EMAIL_RE.test(ownerEmail) || password.length < 12)) return core.sendJson(res, 422, { error: 'a valid owner email and 12 character temporary password are required together', code: 'bad_owner' });
-  if (!ownerEmail && password) return core.sendJson(res, 422, { error: 'owner email is required when a password is supplied', code: 'bad_owner' });
-  if (ownerEmail && core.db().users.some((user) => user.email === ownerEmail)) return core.sendJson(res, 409, { error: 'owner email is already registered', code: 'email_taken' });
-  let tenant; let user = null;
-  await core.mutate((store) => {
-    const now = new Date().toISOString();
-    tenant = {
-      id: core.genId('t_'), name, slug: makeSlug(name, new Set(store.tenants.map((t) => t.slug))),
-      createdAt: now, branding: { color: '#B88A2D' }, providers: { ...DEFAULT_PROVIDERS },
-      plan: 'studio', status: ownerEmail ? 'active' : 'onboarding', privacyMode: 'standard',
-    };
-    store.tenants.push(tenant);
-    store.wallets.push({ id: core.genId('wal_'), tenantId: tenant.id, currency: 'INR', balancePaise: 0, createdAt: now, updatedAt: now });
-    if (ownerEmail) {
-      user = { id: core.genId('u_'), tenantId: tenant.id, email: ownerEmail, name: String(b.ownerName || 'Client Owner').trim().slice(0, 80), passHash: core.hashPassword(password), role: 'owner', status: 'active', createdAt: now };
-      store.users.push(user);
-    }
-    store.clientActivities.push({ id: core.genId('act_'), tenantId: tenant.id, type: 'workspace_created', channel: 'internal', visibility: 'internal', summary: 'Client workspace created in LessRepeat.', actorUserId: ctx.user.id, createdAt: now });
-    addAudit(store, ctx, 'admin.tenant.created', 'tenant', tenant.id, { ownerCreated: !!user });
-  });
-  core.sendJson(res, 201, { tenant: publicTenant(tenant), owner: user ? publicUser(user) : null, note: 'No email was sent.' });
-}
 
 function apiAdminUsers(req, res) { core.sendJson(res, 200, { users: core.db().users.map(publicUser) }); }
 
@@ -2169,6 +2148,7 @@ async function apiAdminTenantStatus(req, res, ctx) {
   if (!['onboarding', 'active', 'suspended', 'closed'].includes(status)) return core.sendJson(res, 422, { error: 'invalid status', code: 'bad_status' });
   const tenant = core.db().tenants.find((t) => t.id === String(b.tenantId || ''));
   if (!tenant) return core.sendJson(res, 404, { error: 'tenant not found', code: 'not_found' });
+  if (tenant.id === ctx.tenant.id && status !== 'active') return core.sendJson(res, 409, { error: 'You cannot suspend your own workspace', code: 'self_suspend' });
   await core.mutate((d) => {
     const now = new Date().toISOString();
     d.tenants.find((t) => t.id === tenant.id).status = status;
@@ -2290,6 +2270,7 @@ const server = http.createServer(async (req, res) => {
   const route = (req.url || '/').split('?')[0];
 
   try {
+    await core.refreshDb();
     if (route.startsWith('/api/')) {
       if (!core.rateOk(ip)) return core.sendJson(res, 429, { error: 'rate limited', code: 'rate' });
 
@@ -2311,7 +2292,13 @@ const server = http.createServer(async (req, res) => {
 
       // ---- Public GET routes ----
       if (route === '/api/health' && req.method === 'GET') return apiHealth(req, res);
-      if (route === '/api/providers' && req.method === 'GET') return apiProviders(req, res);
+      if (route === '/api/providers' && req.method === 'GET') return core.requireAuth(req, res, (r,s,ctx) => {
+        if (adminConsole.platform(ctx.user)) return apiProviders(r,s);
+        const catalog = providers.describeProviders();
+        for (const list of Object.values(catalog)) if (Array.isArray(list)) for (const item of list) { delete item.needs; }
+        return core.sendJson(s,200,catalog);
+      });
+      if (route.startsWith('/api/admin/console/') || route.startsWith('/api/invitations/') || route === '/api/workspace/plan') return consoleApi.handle(req,res,route);
       if (route.startsWith('/api/public/demo/') && req.method === 'GET') {
         const token = decodeURIComponent(route.slice('/api/public/demo/'.length));
         if (token.includes('/')) return core.sendJson(res, 404, { error: 'demo link not found', code: 'not_found' });
@@ -2372,6 +2359,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Public POST (auth) routes.
+      if (route === '/api/voice/lease') {
+        await adminConsole.browserCallLifecycle(body.token, body.action);
+        return core.sendJson(res, 200, {ok:true});
+      }
       if (route === '/api/internal/gemini-tts/v1/audio/speech') return apiInternalGeminiTts(req, res, body);
       if (route === '/api/auth/signup') return apiSignup(req, res, body);
       if (route === '/api/auth/login') return apiLogin(req, res, body);
@@ -2389,9 +2380,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Authed POST routes (tenant scoped through requireAuth).
-      if (route === '/api/agents') return core.requireAuth(req, res, apiAgentsCreate, body);
-      if (route === '/api/agents/update') return core.requireAuth(req, res, apiAgentsUpdate, body);
-      if (route === '/api/agents/delete') return core.requireAuth(req, res, apiAgentsDelete, body);
+      if (route === '/api/agents') return core.requireRole(req, res, 'owner', (r,s,ctx) => adminConsole.withAgentReservation(ctx, () => apiAgentsCreate(r,s,ctx)), body);
+      if (route === '/api/agents/update') return core.requireRole(req, res, 'owner', apiAgentsUpdate, body);
+      if (route === '/api/agents/delete') return core.requireRole(req, res, 'owner', apiAgentsDelete, body);
       if (route === '/api/tts') return core.requireAuth(req, res, apiTts, body);
       if (route === '/api/agents/tts') return core.requireAuth(req, res, apiAgentTts, body);
       if (route === '/api/ws-connect') return core.requireAuth(req, res, apiWsConnect, body);
@@ -2400,7 +2391,7 @@ const server = http.createServer(async (req, res) => {
       if (route === '/api/voice/session') return core.requireAuth(req, res, apiVoiceSession, body);
       if (route === '/api/demo-links') return core.requireRole(req, res, 'owner', apiDemoLinksCreate, body);
       if (route === '/api/demo-links/revoke') return core.requireRole(req, res, 'owner', apiDemoLinksRevoke, body);
-      if (route === '/api/telephony/dial') return core.requireAuth(req, res, apiTelephonyDial, body);
+      if (route === '/api/telephony/dial') return core.requireRole(req, res, 'owner', apiTelephonyDial, body);
       if (route === '/api/payment-intents') return core.requireAuth(req, res, apiPaymentIntentCreate, body);
       if (route === '/api/support/tickets') return core.requireAuth(req, res, apiSupportCreate, body);
       if (route === '/api/support/tickets/reply') return core.requireAuth(req, res, apiSupportReply, body);
@@ -2412,16 +2403,16 @@ const server = http.createServer(async (req, res) => {
       if (route === '/api/invoices/status') return core.requireRole(req, res, 'admin', apiInvoiceStatus, body);
       if (route === '/api/integrations/request') return core.requireRole(req, res, 'owner', apiIntegrationRequest, body);
       if (route === '/api/agency/prompt') return core.requireRole(req, res, 'owner', apiAgencyPromptSave, body);
-      if (route === '/api/custom-voices') return core.requireAuth(req, res, apiCustomVoiceSave, body);
-      if (route === '/api/custom-voices/delete') return core.requireAuth(req, res, apiCustomVoiceDelete, body);
-      if (route === '/api/knowledge') return core.requireAuth(req, res, apiKnowledgeSave, body);
-      if (route === '/api/knowledge/delete') return core.requireAuth(req, res, apiKnowledgeDelete, body);
+      if (route === '/api/custom-voices') return core.requireRole(req, res, 'owner', apiCustomVoiceSave, body);
+      if (route === '/api/custom-voices/delete') return core.requireRole(req, res, 'owner', apiCustomVoiceDelete, body);
+      if (route === '/api/knowledge') return core.requireRole(req, res, 'owner', apiKnowledgeSave, body);
+      if (route === '/api/knowledge/delete') return core.requireRole(req, res, 'owner', apiKnowledgeDelete, body);
       if (route === '/api/contacts') return core.requireAuth(req, res, apiContactSave, body);
       if (route === '/api/contacts/delete') return core.requireAuth(req, res, apiContactDelete, body);
-      if (route === '/api/automations') return core.requireAuth(req, res, apiAutomationSave, body);
-      if (route === '/api/automations/delete') return core.requireAuth(req, res, apiAutomationDelete, body);
+      if (route === '/api/automations') return core.requireRole(req, res, 'owner', apiAutomationSave, body);
+      if (route === '/api/automations/delete') return core.requireRole(req, res, 'owner', apiAutomationDelete, body);
       if (route === '/api/admin/client-approach') return core.requireRole(req, res, 'admin', apiClientApproach, body);
-      if (route === '/api/admin/tenants') return core.requireRole(req, res, 'super_admin', apiAdminTenantCreate, body);
+      if (route === '/api/admin/tenants') return core.sendJson(res, 410, {error:'Use Admin Console client invitations instead of temporary passwords.',code:'use_client_invitation'});
       if (route === '/api/admin/tenants/status') return core.requireRole(req, res, 'super_admin', apiAdminTenantStatus, body);
       if (route === '/api/admin/users/status') return core.requireRole(req, res, 'super_admin', apiAdminUserStatus, body);
       if (route === '/api/admin/users/role') return core.requireRole(req, res, 'super_admin', apiAdminUserRole, body);
@@ -2443,9 +2434,12 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     // Everything else is a static file from public/.
+    if (route === '/admin' || route === '/admin/') req.url = '/admin.html';
+    if (route === '/app' || route === '/app/') req.url = '/app.html';
+    if (route === '/invite' || route === '/invite/') req.url = '/invite.html';
     core.serveStatic(req, res);
   } catch (e) {
-    core.sendJson(res, 500, { error: String((e && e.message) || e), code: 'server' });
+    core.sendJson(res, e.status || 500, { error: e.status ? e.message : 'Server operation failed', code: e.code || 'server' });
   }
 });
 
@@ -2557,6 +2551,14 @@ server.on('error', (e) => {
 
 // Boot then listen.
 boot().then(() => {
+  return adminConsole.seed();
+}).then(() => {
+  const meterTimer = setInterval(async () => {
+    for (const tenant of core.db().tenants) {
+      try { await callMeter.refresh(tenant.id); } catch (_) { /* Admission refresh fails closed when Dograh cannot be reached. */ }
+    }
+  }, 30000);
+  meterTimer.unref();
   server.listen(PORT, () => {
     const live = providers.describeProviders();
     const flag = (layer, id) => (live[layer].find((p) => p.id === id) || {}).live ? 'ok' : 'MISSING';

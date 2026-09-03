@@ -29,6 +29,8 @@ This is a monorepo. The application and the Dograh source are committed as norma
 - Configure workspace-wide operating rules and AI boundaries.
 - Connect telephony through Dograh and VoBiz.
 - Isolate workspaces with authenticated, tenant-scoped access.
+- Onboard clients through a separate Admin Console with private invitations,
+  reusable presets, plan limits, team roles, suspension, and audit history.
 
 ## Prerequisites
 
@@ -71,6 +73,7 @@ npm start
 Open:
 
 - LessRepeat dashboard: `http://127.0.0.1:8787/app.html`
+- LessRepeat Admin Console: `http://127.0.0.1:8787/admin`
 - LessRepeat landing page: `http://127.0.0.1:8787/`
 - Dograh UI: `http://127.0.0.1:3010/`
 - Dograh API health: `http://127.0.0.1:8000/api/v1/health`
@@ -98,10 +101,15 @@ Avoid `docker compose down -v` unless you intentionally want to remove local Pos
 - Dashboard runtime state under `data/` is ignored.
 - Recordings and uploaded objects are not committed.
 - PostgreSQL stores structured Dograh application and call data.
+- With `LESSREPEAT_DATABASE_URL`, dashboard state also lives in PostgreSQL,
+  in a separate `lessrepeat` schema. JSON is a single-process fallback.
 - MinIO stores object data such as recordings and uploaded files.
 - Live credentials are never intentionally sent to browser JavaScript.
 
 Before production use, rotate any key that has previously appeared in chat, terminal output, screenshots, or Git history. Use separate development and production credentials.
+
+See [Admin Console setup and operations](LessRepeat_Cloud/dashboard/ADMIN-CONSOLE.md)
+for client invitations, roles, plan enforcement, storage migration, and backups.
 
 ## Current MVP boundary
 

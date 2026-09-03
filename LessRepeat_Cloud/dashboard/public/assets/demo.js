@@ -16,6 +16,15 @@ let clockTimer = null;
 let voiceAudio = null;
 let voiceRequest = null;
 let voiceTransport = 'browser';
+let leaseToken = null;
+let connectionTimer = null;
+let attemptId = 0;
+function notifyLease(token, action) {
+  if (!token) return Promise.resolve();
+  return fetch('/api/voice/lease', {method:'POST', credentials:'omit', keepalive:true,
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({token,action})})
+    .then(r => {if (!r.ok) throw new Error('Call reservation expired. Please try again.');});
+}
 
 function stopCustomVoice() {
   if (voiceRequest) { voiceRequest.abort(); voiceRequest = null; }
@@ -103,8 +112,12 @@ function updateClock(maxSeconds) {
   byId('demoTimer').textContent = Math.floor(remaining / 60) + ':' + String(remaining % 60).padStart(2, '0') + ' remaining';
 }
 function stopCall(label) {
+  attemptId++;
+  clearTimeout(connectionTimer); connectionTimer = null;
+  const endedLease = leaseToken; leaseToken = null;
+  notifyLease(endedLease, 'ended').catch(() => {});
   clearTimeout(endTimer); clearInterval(clockTimer); endTimer = null; clockTimer = null;
-  if (ws && ws.readyState < 2) { try { ws.close(); } catch (_) {} } ws = null;
+  if (ws) { ws.onclose = ws.onmessage = ws.onerror = ws.onopen = null; if (ws.readyState < 2) { try { ws.close(); } catch (_) {} } } ws = null;
   if (pc) { try { pc.getSenders().forEach((sender) => sender.track && sender.track.stop()); pc.close(); } catch (_) {} } pc = null;
   if (stream) stream.getTracks().forEach((track) => track.stop()); stream = null;
   remoteAudio.srcObject = null; startedAt = 0; byId('demoTimer').textContent = '';
@@ -133,10 +146,18 @@ async function handleSignal(message) {
 }
 async function startCall() {
   if (running || !metadata || metadata.demo.status !== 'active') return;
+  const attempt = ++attemptId;
   setButton(true); callButton.disabled = true; setStatus('connecting', 'Connecting', 'Allow microphone access when your browser asks.');
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const microphone = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    if (attempt !== attemptId) { microphone.getTracks().forEach(t => t.stop()); return; }
+    stream = microphone;
     const session = await jsonFetch('/api/public/demo/' + encodeURIComponent(token) + '/session', { method: 'POST', body: '{}' });
+    if (attempt !== attemptId) { notifyLease(session.leaseToken,'ended').catch(() => {}); return; }
+    leaseToken = session.leaseToken;
+    connectionTimer = setTimeout(() => {
+      stopCall('Connection timed out'); setStatus('error','Connection timed out','The call could not connect. Your call slot has been released; try again.');
+    }, 45000);
     voiceTransport = session.voiceTransport || 'browser';
     const iceServers = [{ urls: ['stun:stun.l.google.com:19302'] }];
     if (session.turnCredentials && session.turnCredentials.uris && session.turnCredentials.uris.length) {
@@ -148,6 +169,9 @@ async function startCall() {
     pc.onconnectionstatechange = () => {
       if (!pc) return;
       if (pc.connectionState === 'connected') {
+        if (startedAt) return;
+        clearTimeout(connectionTimer); connectionTimer = null;
+        notifyLease(session.leaseToken,'connected').catch(error => { if (attempt === attemptId) { stopCall(); setStatus('error','Call unavailable',error.message); } });
         startedAt = Date.now(); callButton.disabled = false; setStatus('listening', 'Listening', 'Speak naturally when you are ready.');
         const maximum = Number(session.maxSessionSeconds || metadata.demo.maxSessionSeconds || 300);
         updateClock(maximum); clockTimer = setInterval(() => updateClock(maximum), 1000);
@@ -167,6 +191,7 @@ async function startCall() {
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
     ws.send(JSON.stringify({ type: 'offer', payload: { sdp: offer.sdp, type: 'offer', pc_id: peerId, workflow_id: session.workflowId, workflow_run_id: session.workflowRunId } }));
   } catch (error) {
+    if (attempt !== attemptId) return;
     stopCall('Ready to retry'); setStatus('error', 'Could not start', error.message || 'Allow microphone access and try again.'); callButton.disabled = false;
   }
 }

@@ -86,5 +86,49 @@ test('Telugu agents receive a natural Telugu conversation instruction', () => {
     name: 'Clinic Receptionist', language: 'te-IN', persona: 'Book appointments for this clinic.',
   }));
   assert.match(prompt, /natural conversational Telugu/i);
-  assert.match(prompt, /caller speaks English/i);
+  assert.match(prompt, /Telugu is the primary and default language/i);
+  assert.match(prompt, /caller may explicitly request ANY language/i);
+});
+
+test('language changes replace a mismatched greeting and override old preset language preferences', () => {
+  const telugu=buildAgentConfiguration({name:'Reception',language:'te-IN',greeting:'Welcome!'}, {persona:'Use English.',guardrails:['English is primary.']});
+  assert.match(telugu.greeting,/[\u0C00-\u0C7F]/);
+  assert.match(buildGlobalPrompt(telugu),/selected primary language \(te-IN\) overrides conflicting language/i);
+  const english=buildAgentConfiguration({...telugu,language:'en-IN'});
+  assert.match(english.greeting,/Hello/);
+  assert.doesNotMatch(english.greeting,/[\u0C00-\u0C7F]/);
+});
+
+test('English agents stay in English unless the caller explicitly requests another language', () => {
+  const prompt = buildGlobalPrompt(buildAgentConfiguration({
+    name: 'Clinic Receptionist', language: 'en-IN', persona: 'Book appointments for this clinic.',
+  }));
+  assert.match(prompt, /English is the primary and default language/i);
+  assert.match(prompt, /not as a permanent language lock/i);
+  assert.match(prompt, /latest explicit language request takes priority/i);
+});
+
+test('Hindi and other configured languages support switches back without resetting intake', () => {
+  for (const language of ['hi-IN','ta-IN','kn-IN','ml-IN','mr-IN','bn-IN','gu-IN','hinglish','fr-FR']) {
+    const config=buildAgentConfiguration({language,greeting:'Hello!'});
+    const prompt=buildGlobalPrompt(config);
+    assert.match(prompt,/very next turn/);
+    assert.match(prompt,/A later switch back is equally valid/);
+    assert.match(prompt,/Do not restart the greeting, reset intake, discard previous answers/);
+    assert.match(prompt,/never overrides business or safety rules/);
+    assert.match(prompt,/If communication is not reliable/);
+  }
+  assert.match(buildAgentConfiguration({language:'hi-IN',greeting:'Hello!'}).greeting,/नमस्ते/);
+});
+
+test('extraction survives hangup in opening or conversation and reads every language', () => {
+  const workflow=buildDograhWorkflowDefinition(buildAgentConfiguration({language:'hi-IN'}));
+  for(const node of workflow.nodes.filter(n=>n.type!=='globalNode')) {
+    assert.equal(node.data.extraction_enabled,true);
+    assert.match(node.data.extraction_prompt,/ENTIRE conversation across all languages/);
+    assert.match(node.data.extraction_prompt,/latest explicit correction/);
+    assert.match(node.data.extraction_prompt,/never translate keys/);
+    assert.match(node.data.extraction_prompt,/Absence of consent is unknown/);
+    assert.deepEqual(node.data.extraction_variables.map(v=>v.name),['caller_name','callback_number','reason','next_step']);
+  }
 });
