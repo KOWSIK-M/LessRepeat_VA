@@ -59,7 +59,8 @@ function toggleTheme() { applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'
 applyTheme(currentTheme());
 
 const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
-const VOICE_MODELS = ['kokoro', GEMINI_TTS_MODEL, 'mulberry', 'muga'];
+const GOOGLE_CLOUD_TTS_MODEL = 'neural2';
+const VOICE_MODELS = [GOOGLE_CLOUD_TTS_MODEL, GEMINI_TTS_MODEL, 'mulberry', 'muga'];
 const SPEAKERS = ['speaker_1', 'speaker_2', 'speaker_3', 'speaker_4'];
 const KOKORO_VOICES = [
   { id: 'hm_omega', label: 'Arjun, young clear male', speed: 1.06 },
@@ -80,6 +81,12 @@ const GEMINI_TELUGU_VOICES = [
   { id: 'Iapetus', label: 'Arjun, clear Telugu man' },
   { id: 'Zubenelgenubi', label: 'Kiran, casual Telugu man' },
   { id: 'Charon', label: 'Ravi, steady Telugu man' }
+];
+const GOOGLE_CLOUD_HINDI_VOICES = [
+  { id: 'hi-IN-Neural2-A', label: 'Hindi Female A, clear and professional', speed: 1 },
+  { id: 'hi-IN-Neural2-B', label: 'Hindi Male B, natural and confident', speed: 1 },
+  { id: 'hi-IN-Neural2-C', label: 'Hindi Male C, warm and conversational', speed: 1 },
+  { id: 'hi-IN-Neural2-D', label: 'Hindi Female D, warm and approachable', speed: 1 }
 ];
 const INDIAN_VOICE_PROFILES = [
   { id: 'indian-neutral', label: 'Natural Indian English', speaker: 'speaker_2', f0: 0, description: 'Natural Indian English accent, clear everyday speech, warm and realistic, conversational pacing, no exaggerated pronunciation.' },
@@ -884,9 +891,9 @@ function buildAgentForm(existing) {
   const tts = e.tts || {};
   const card = el('div', { class: 'card builder' });
   const state = {
-    provider: tts.provider || 'kokoro',
-    model: tts.model || 'kokoro',
-    speaker: tts.speaker || 'hf_beta',
+    provider: tts.provider === 'kokoro' ? 'rumik' : (tts.provider || 'rumik'),
+    model: tts.model === 'kokoro' ? 'mulberry' : (tts.model || 'mulberry'),
+    speaker: tts.provider === 'kokoro' ? 'speaker_1' : (tts.speaker || 'speaker_1'),
     speed: tts.speed != null ? tts.speed : ((KOKORO_VOICES.find((voice) => voice.id === tts.speaker) || {}).speed || 0.92),
     f0: tts.f0_up_key != null ? tts.f0_up_key : 0,
     profile: tts.profile || '',
@@ -913,9 +920,9 @@ function buildAgentForm(existing) {
   const modelSeg = el('div', { class: 'seg', id: 'f_model_seg' }, VOICE_MODELS.map((m) =>
     el('button', { type: 'button', class: m === state.model ? 'on' : '', 'data-m': m, onclick: () => {
       state.model = m;
-      state.provider = m === 'kokoro' ? 'kokoro' : (m === GEMINI_TTS_MODEL ? 'gemini_tts' : 'rumik');
+      state.provider = m === 'kokoro' ? 'kokoro' : (m === GOOGLE_CLOUD_TTS_MODEL ? 'google_cloud_tts' : (m === GEMINI_TTS_MODEL ? 'gemini_tts' : 'rumik'));
       syncVoice(true);
-    } }, m === 'kokoro' ? 'Kokoro free' : (m === GEMINI_TTS_MODEL ? 'Gemini Telugu preview' : m))
+    } }, m === 'kokoro' ? 'Kokoro free' : (m === GOOGLE_CLOUD_TTS_MODEL ? 'Google Hindi Neural2' : (m === GEMINI_TTS_MODEL ? 'Gemini Telugu preview' : m)))
   ));
   const speakerSel = el('select', { class: 'select', id: 'f_speaker' });
   const f0Val = el('span', { class: 'rv', id: 'f_f0_val' }, String(state.f0));
@@ -977,7 +984,8 @@ function buildAgentForm(existing) {
     const isMul = state.model === 'mulberry';
     const isKokoro = state.model === 'kokoro';
     const isGemini = state.model === GEMINI_TTS_MODEL;
-    const choices = isKokoro ? KOKORO_VOICES : (isGemini ? GEMINI_TELUGU_VOICES : SPEAKERS.map((id) => ({ id, label: id })));
+    const isGoogleCloud = state.model === GOOGLE_CLOUD_TTS_MODEL;
+    const choices = isKokoro ? KOKORO_VOICES : (isGoogleCloud ? GOOGLE_CLOUD_HINDI_VOICES : (isGemini ? GEMINI_TELUGU_VOICES : SPEAKERS.map((id) => ({ id, label: id }))));
     if (resetSpeaker || !choices.some((item) => item.id === state.speaker)) {
       state.speaker = choices[0].id;
       if (choices[0].speed) state.speed = choices[0].speed;
@@ -985,7 +993,7 @@ function buildAgentForm(existing) {
     speakerSel.innerHTML = '';
     choices.forEach((item) => speakerSel.appendChild(el('option', { value: item.id, selected: item.id === state.speaker ? 'selected' : false }, item.label)));
     speakerSel.onchange = () => { state.speaker = speakerSel.value; const choice = choices.find((item) => item.id === state.speaker); if (choice && choice.speed) state.speed = choice.speed; };
-    speakerField.style.display = (isMul || isKokoro || isGemini) ? '' : 'none';
+    speakerField.style.display = (isMul || isKokoro || isGemini || isGoogleCloud) ? '' : 'none';
     profileField.style.display = isMul ? '' : 'none';
     f0Range.closest('.field').style.display = isMul ? '' : 'none';
     descField.style.display = (isMul || isGemini) ? '' : 'none';
@@ -1080,7 +1088,7 @@ function paintAgents() {
 function agentCard(a) {
   const tts = a.tts || {};
   const profile = INDIAN_VOICE_PROFILES.find((item) => item.id === tts.profile);
-  const providerLabel = tts.provider === 'kokoro' ? 'Local, ₹0 API' : (tts.provider === 'gemini_tts' ? 'Gemini Telugu preview, live uses Dograh default' : 'Rumik');
+  const providerLabel = tts.provider === 'kokoro' ? 'Local, ₹0 API' : (tts.provider === 'google_cloud_tts' ? 'Google Hindi Neural2 preview, matched Chirp 3 live voice' : (tts.provider === 'gemini_tts' ? 'Gemini Telugu preview, live uses Dograh default' : 'Rumik'));
   const voiceLine = providerLabel + ' / ' + (profile ? profile.label + ' / ' : '') + (tts.speaker || 'speaker') + (tts.f0_up_key ? ' / pitch ' + (tts.f0_up_key > 0 ? '+' : '') + tts.f0_up_key : '');
   const did = a.telephony && a.telephony.did ? a.telephony.did : null;
 
@@ -1120,7 +1128,7 @@ function changeAgentLanguage(agent) {
   const greeting=el('textarea',{class:'input',rows:3,'aria-label':'Greeting'},agent.greeting||'');
   modal({title:'Language · '+agent.name,body:el('div',{},[
     field('Primary language',language),field('Greeting (optional)',greeting),
-    el('p',{class:'muted'},'This is the opening language, not a language lock. Callers can ask to switch languages and switch back during the same call without restarting their enquiry. Saved details stay with that call. A mismatched greeting is replaced with a default; review it after saving. Live calls use Dograh speech; supported languages and pronunciation depend on its speech providers. Local Kokoro remains available for previews.')
+    el('p',{class:'muted'},'This is the opening language, not a language lock. Callers can ask to switch languages and switch back during the same call without restarting their enquiry. Saved details stay with that call. A mismatched greeting is replaced with a default; review it after saving. Live calls use Dograh speech; supported languages and pronunciation depend on its speech providers.')
   ]),confirmText:'Save language',onConfirm:async()=>{
     await api('/api/agents/update',{method:'POST',body:{id:agent.id,language:language.value,greeting:greeting.value}});
     await ensureAgents(true);paintAgents();toast('Language saved and voice workflows republished.','ok');
@@ -1210,13 +1218,13 @@ async function viewStudio(root) {
   root.appendChild(viewHead('Voice Studio', 'Type anything, pick a model, and synthesize. See the waveform, hear it back, and watch the cost in real time.'));
   await ensureCustomVoices().catch(() => []);
 
-  const st = { provider: 'kokoro', model: 'kokoro', tone: 'neutral', speaker: 'hf_beta', speed: 0.92, f0: 0, profile: '', stream: false };
+  const st = { provider: 'google_cloud_tts', model: GOOGLE_CLOUD_TTS_MODEL, tone: 'neutral', speaker: 'hi-IN-Neural2-A', speed: 1, f0: 0, profile: '', stream: false };
 
   const textArea = el('textarea', { class: 'textarea studio-text', id: 's_text', placeholder: 'Welcome to LessRepeat. AI voice agents that speak, understand and act.' }, 'Welcome to LessRepeat. AI voice agents that speak, understand and act.');
 
   // model picker
   const modelSeg = el('div', { class: 'seg' }, VOICE_MODELS.map((m) =>
-    el('button', { type: 'button', class: m === st.model ? 'on' : '', 'data-m': m, onclick: () => { st.model = m; st.provider = m === 'kokoro' ? 'kokoro' : (m === GEMINI_TTS_MODEL ? 'gemini_tts' : 'rumik'); syncCtl(true); updateCost(); } }, m === 'kokoro' ? 'Kokoro free' : (m === GEMINI_TTS_MODEL ? 'Gemini Telugu' : m))
+    el('button', { type: 'button', class: m === st.model ? 'on' : '', 'data-m': m, onclick: () => { st.model = m; st.provider = m === 'kokoro' ? 'kokoro' : (m === GOOGLE_CLOUD_TTS_MODEL ? 'google_cloud_tts' : (m === GEMINI_TTS_MODEL ? 'gemini_tts' : 'rumik')); syncCtl(true); updateCost(); } }, m === 'kokoro' ? 'Kokoro free' : (m === GOOGLE_CLOUD_TTS_MODEL ? 'Google Hindi Neural2' : (m === GEMINI_TTS_MODEL ? 'Gemini Telugu' : m)))
   ));
   // muga tones
   const toneSeg = el('div', { class: 'seg', id: 's_tones' }, MUGA_TONES.map((tn) =>
@@ -1268,7 +1276,8 @@ async function viewStudio(root) {
     const isMul = st.model === 'mulberry';
     const isKokoro = st.model === 'kokoro';
     const isGemini = st.model === GEMINI_TTS_MODEL;
-    const choices = isKokoro ? KOKORO_VOICES : (isGemini ? GEMINI_TELUGU_VOICES : SPEAKERS.map((id) => ({ id, label: id })));
+    const isGoogleCloud = st.model === GOOGLE_CLOUD_TTS_MODEL;
+    const choices = isKokoro ? KOKORO_VOICES : (isGoogleCloud ? GOOGLE_CLOUD_HINDI_VOICES : (isGemini ? GEMINI_TELUGU_VOICES : SPEAKERS.map((id) => ({ id, label: id }))));
     if (resetSpeaker || !choices.some((item) => item.id === st.speaker)) {
       st.speaker = choices[0].id;
       if (choices[0].speed) st.speed = choices[0].speed;
@@ -1278,9 +1287,9 @@ async function viewStudio(root) {
     speakerSel.onchange = () => { st.speaker = speakerSel.value; const choice = choices.find((item) => item.id === st.speaker); if (choice && choice.speed) st.speed = choice.speed; };
     mugaCtl.style.display = st.model === 'muga' ? '' : 'none';
     [mulProfile, mulPitch].forEach((f) => f.style.display = isMul ? '' : 'none');
-    mulSpeaker.style.display = (isMul || isKokoro || isGemini) ? '' : 'none';
+    mulSpeaker.style.display = (isMul || isKokoro || isGemini || isGoogleCloud) ? '' : 'none';
     mulDesc.style.display = (isMul || isGemini) ? '' : 'none';
-    if (streamToggle) { streamToggle.style.display = isGemini ? 'none' : ''; if (isGemini) st.stream = false; }
+    if (streamToggle) { streamToggle.style.display = (isGemini || isGoogleCloud) ? 'none' : ''; if (isGemini || isGoogleCloud) st.stream = false; }
   }
 
   const charsEl = el('span', { class: 'c-chars', id: 's_chars' }, '0 chars');
@@ -1290,7 +1299,7 @@ async function viewStudio(root) {
     const capped = Math.min(len, 2000);
     charsEl.textContent = len + ' chars' + (len > 2000 ? ' (capped at 2000)' : '');
     costEl.innerHTML = '';
-    if (st.model === GEMINI_TTS_MODEL) {
+    if (st.model === GEMINI_TTS_MODEL || st.model === GOOGLE_CLOUD_TTS_MODEL) {
       costEl.appendChild(el('b', {}, 'metered by audio duration'));
       return;
     }
@@ -1349,7 +1358,7 @@ async function viewStudio(root) {
     el('div', { class: 'card card-pad' }, [
       el('h3', { class: 't-h3', style: 'margin-bottom:14px' }, 'Economics'),
       el('div', { class: 'cost-readout' }, [charsEl, costEl]),
-      el('p', { class: 'muted', style: 'font-size:.8rem;margin-top:10px' }, 'Kokoro runs locally with no per-character fee. Gemini Telugu uses your Gemini API quota for Studio previews. Live agent and demo calls use the stable Dograh default voice because this project currently has no reliable Gemini Live quota.')
+      el('p', { class: 'muted', style: 'font-size:.8rem;margin-top:10px' }, 'Google Neural2 is used for previews. Live Dograh calls automatically use a matched Hindi Chirp 3 HD streaming voice because Google does not stream Neural2. Gemini Telugu previews use Gemini quota, while their live calls remain on Dograh default unless Gemini Live is enabled.')
     ])
   ]);
 
@@ -1385,6 +1394,7 @@ async function doSynthesize(st, textArea, btn, audioEl, canvas, playerRow) {
   try {
     const body = { text: text, provider: st.provider, model: st.model };
     if (st.model === 'kokoro') { body.speaker = st.speaker; body.speed = st.speed; }
+    if (st.model === GOOGLE_CLOUD_TTS_MODEL) { body.speaker = st.speaker; body.speed = st.speed; }
     if (st.model === GEMINI_TTS_MODEL) { body.speaker = st.speaker; body.description = st.desc || ''; }
     if (st.model === 'mulberry') { body.speaker = st.speaker; body.f0_up_key = st.f0; if (st.desc) body.description = st.desc; }
     const res = await api('/api/tts', { method: 'POST', body: body });
@@ -1880,6 +1890,7 @@ async function viewTalk(root) {
     if (message.type === 'call-ended') return stopCall('Call ended');
     if (message.type === 'error' || message.type === 'rtf-pipeline-error') {
       const detail = (message.payload && (message.payload.message || message.payload.error)) || 'Realtime voice call failed';
+      stopCall('Ready to retry');
       appendBubble('sys', detail);
       setPhase('error', 'Call error');
       return;
@@ -1958,7 +1969,7 @@ async function viewTalk(root) {
       if (turn && turn.uris && turn.uris.length) {
         iceServers.push({ urls: turn.uris, username: turn.username, credential: turn.password });
       }
-      pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: turn.uris.length ? 'relay' : 'all' });
+      pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: 'all' });
       window.__rumikPc = pc;
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -1974,10 +1985,22 @@ async function viewTalk(root) {
           notifyLease(session.leaseToken,'connected').catch(error => {if (attempt === attemptId) {stopCall(); toast(error.message,'err');}});
           setPhase('listening', 'Live call connected');
         }
-        if (pc.connectionState === 'failed') { setPhase('error', 'Connection failed'); stopCall('Connection failed'); }
+        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') { setPhase('error', 'Connection failed'); stopCall('Connection failed'); }
       };
 
       peerId = securePeerId();
+
+      const pendingCandidates = [];
+      function sendCandidate(candidate) {
+        const payload = { type: 'ice-candidate', payload: { candidate, pc_id: peerId } };
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+        else pendingCandidates.push(payload);
+      }
+
+      pc.onicecandidate = (event) => {
+        const candidate = event.candidate ? { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex } : null;
+        sendCandidate(candidate);
+      };
 
       function connectWss() {
         if (!running || attempt !== attemptId) return;
@@ -2001,19 +2024,13 @@ async function viewTalk(root) {
           reconnectAttempts = 0;
           const offer = pc.localDescription;
           ws.send(JSON.stringify({ type: 'offer', payload: { sdp: offer.sdp, type: 'offer', pc_id: peerId, workflow_id: session.workflowId, workflow_run_id: session.workflowRunId } }));
+          while (pendingCandidates.length) ws.send(JSON.stringify(pendingCandidates.shift()));
         };
       }
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       connectWss();
-
-      pc.onicecandidate = (event) => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        if (event.candidate) {
-          ws.send(JSON.stringify({ type: 'ice-candidate', payload: { candidate: { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex }, pc_id: peerId } }));
-        }
-      };
 
     } catch (error) {
       if (attempt !== attemptId) return;

@@ -112,6 +112,7 @@ function buildGlobalPrompt(configuration, agencyPrompt = '') {
     'Use caller-provided personal information only to complete the current authorized task. Do not request sensitive information unless it is explicitly required by the configured workflow.',
     'Stay strictly within this configured identity and role.',
     'Ask only relevant questions, one at a time, and keep responses concise and natural for a phone call.',
+    'Ask questions directly as ordinary spoken sentences. Never invent or call a function named ask_question, and never invoke a tool that was not explicitly provided by the runtime.',
     'Never invent availability, facts, commitments, or outcomes. Escalate or offer a human follow-up when needed.',
     'Do not mention unrelated businesses, industries, services, products, or workflows.',
     'Do not use markdown, lists, emojis, or characters that are awkward to pronounce.',

@@ -58,24 +58,6 @@ services:
     networks:
       - app-network
 
-  kokoro-tts:
-    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.0
-    restart: unless-stopped
-    environment:
-      API_LOG_LEVEL: WARNING
-      DEFAULT_VOICE: hf_beta
-      DEFAULT_VOICE_CODE: h
-    ports:
-      - "127.0.0.1:8880:8880"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8880/health"]
-      interval: 15s
-      timeout: 8s
-      retries: 20
-      start_period: 90s
-    networks:
-      - app-network
-
 volumes:
   postgres_data:
   redis_data:

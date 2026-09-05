@@ -83,7 +83,7 @@ Open:
 ```powershell
 # Follow Dograh logs
 Set-Location C:\Kowsik\dograh\dograh
-docker compose logs -f api ui kokoro-tts
+docker compose logs -f api ui
 
 # Stop the Docker services without deleting stored volumes
 docker compose down

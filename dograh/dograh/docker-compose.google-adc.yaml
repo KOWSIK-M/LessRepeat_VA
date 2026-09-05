@@ -1,0 +1,9 @@
+services:
+  api:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /var/run/google/application_default_credentials.json
+    volumes:
+      - type: bind
+        source: ${GOOGLE_ADC_HOST_PATH:?Set GOOGLE_ADC_HOST_PATH to an absolute ADC credential configuration path}
+        target: /var/run/google/application_default_credentials.json
+        read_only: true

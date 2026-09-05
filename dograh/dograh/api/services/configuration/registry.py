@@ -370,6 +370,8 @@ ATLASCLOUD_MODELS = [
 ]
 
 GROQ_MODELS = [
+    "qwen/qwen3.8-27b",
+    "qwen/qwen3.6-27b",
     "llama-3.3-70b-versatile",
     "deepseek-r1-distill-llama-70b",
     "qwen-qwq-32b",

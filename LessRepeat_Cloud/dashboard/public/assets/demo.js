@@ -134,7 +134,12 @@ async function handleSignal(message) {
     return;
   }
   if (message.type === 'call-ended') return stopCall('Call ended');
-  if (message.type === 'error' || message.type === 'rtf-pipeline-error') return setStatus('error', 'Voice error', 'End the call, then try once more.');
+  if (message.type === 'error' || message.type === 'rtf-pipeline-error') {
+    const detail = String((message.payload && (message.payload.message || message.payload.error)) || 'The voice pipeline stopped. Please try again.');
+    stopCall('Ready to retry');
+    setStatus('error', 'Voice error', detail);
+    return;
+  }
   if (message.type === 'rtf-user-transcription') { stopCustomVoice(); return setStatus('thinking', 'Agent is thinking', 'Your agent is preparing a response.'); }
   if (message.type === 'rtf-bot-text') {
     const text = String((message.payload && message.payload.text) || '').trim();
@@ -163,7 +168,7 @@ async function startCall() {
     if (session.turnCredentials && session.turnCredentials.uris && session.turnCredentials.uris.length) {
       iceServers.push({ urls: session.turnCredentials.uris, username: session.turnCredentials.username, credential: session.turnCredentials.password });
     }
-    pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: session.turnCredentials ? 'relay' : 'all' });
+    pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: 'all' });
     stream.getTracks().forEach((track) => pc.addTrack(track, stream));
     pc.ontrack = (event) => { if (event.track.kind === 'audio') { remoteAudio.srcObject = event.streams[0]; remoteAudio.muted = voiceTransport === 'browser'; if (!remoteAudio.muted) remoteAudio.play().catch(() => {}); } };
     pc.onconnectionstatechange = () => {
@@ -177,7 +182,7 @@ async function startCall() {
         updateClock(maximum); clockTimer = setInterval(() => updateClock(maximum), 1000);
         endTimer = setTimeout(() => stopCall('Demo time completed'), maximum * 1000);
       }
-      if (pc.connectionState === 'failed') { stopCall('Connection failed'); setStatus('error', 'Connection failed', 'Check your network, then try again.'); }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') { stopCall('Connection failed'); setStatus('error', 'Connection failed', 'Check your network, then try again.'); }
     };
     const peerId = securePeerId();
     ws = new WebSocket(session.signalingUrl);
@@ -185,8 +190,9 @@ async function startCall() {
     ws.onclose = () => { if (running) stopCall('Call ended'); };
     await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = () => reject(new Error('The realtime connection could not open.')); });
     pc.onicecandidate = (event) => {
-      if (!event.candidate || !ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'ice-candidate', payload: { candidate: { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex }, pc_id: peerId } }));
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const candidate = event.candidate ? { candidate: event.candidate.candidate, sdpMid: event.candidate.sdpMid, sdpMLineIndex: event.candidate.sdpMLineIndex } : null;
+      ws.send(JSON.stringify({ type: 'ice-candidate', payload: { candidate, pc_id: peerId } }));
     };
     const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
     ws.send(JSON.stringify({ type: 'offer', payload: { sdp: offer.sdp, type: 'offer', pc_id: peerId, workflow_id: session.workflowId, workflow_run_id: session.workflowRunId } }));

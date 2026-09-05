@@ -4,6 +4,18 @@ $EnvFile = '.env'
 $Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/dograh-hq' } else { $env:REGISTRY }
 $EnableTelemetry = if ([string]::IsNullOrEmpty($env:ENABLE_TELEMETRY)) { 'true' } else { $env:ENABLE_TELEMETRY }
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$ComposeFiles = @('-f', 'docker-compose.yaml')
+$DefaultGoogleAdcPath = if ([string]::IsNullOrEmpty($env:APPDATA)) { $null } else { Join-Path $env:APPDATA 'gcloud\application_default_credentials.json' }
+if ([string]::IsNullOrEmpty($env:GOOGLE_ADC_HOST_PATH) -and $DefaultGoogleAdcPath -and (Test-Path -LiteralPath $DefaultGoogleAdcPath)) {
+    $env:GOOGLE_ADC_HOST_PATH = $DefaultGoogleAdcPath
+}
+if (-not [string]::IsNullOrEmpty($env:GOOGLE_ADC_HOST_PATH)) {
+    if (-not (Test-Path -LiteralPath $env:GOOGLE_ADC_HOST_PATH)) {
+        Write-Error "GOOGLE_ADC_HOST_PATH does not exist: $($env:GOOGLE_ADC_HOST_PATH)"
+        exit 1
+    }
+    $ComposeFiles += @('-f', 'docker-compose.google-adc.yaml')
+}
 
 function New-HexSecret {
     $bytes = [byte[]]::new(32)
@@ -214,7 +226,10 @@ Write-Host ''
 Write-Host "Docker registry: $Registry"
 Write-Host ''
 Write-Host 'This will run:'
-Write-Host "  `$env:REGISTRY = '$Registry'; `$env:ENABLE_TELEMETRY = '$EnableTelemetry'; docker compose --profile tunnel up --pull always"
+Write-Host "  `$env:REGISTRY = '$Registry'; `$env:ENABLE_TELEMETRY = '$EnableTelemetry'; docker compose $($ComposeFiles -join ' ') --profile tunnel up --pull always"
+if ($ComposeFiles -contains 'docker-compose.google-adc.yaml') {
+    Write-Host '  Google ADC will be mounted read-only for Google Cloud TTS.'
+}
 Write-Host ''
 
 $answer = Read-Host 'Start Dograh now? [Y/n]'
@@ -226,7 +241,7 @@ if ($answer -match '^[Nn]') {
 $env:REGISTRY = $Registry
 $env:ENABLE_TELEMETRY = $EnableTelemetry
 Sync-PostgresPassword -Password (Get-DotEnvValue -Path $EnvFile -Key 'POSTGRES_PASSWORD')
-docker compose --profile tunnel up --pull always
+docker compose @ComposeFiles --profile tunnel up --pull always
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

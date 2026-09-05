@@ -13,7 +13,8 @@ function resetEnv(values = {}) {
   }
   Object.assign(process.env, originalEnv, values);
   for (const key of ['LLM_PROVIDER', 'LLM_MODEL', 'TTS_PROVIDER', 'TTS_MODEL', 'STT_PROVIDER',
-    'GROQ_ALLOWED_MODELS', 'GEMINI_ALLOWED_MODELS', 'GEMINI_TTS_MODEL']) {
+    'GROQ_ALLOWED_MODELS', 'GEMINI_ALLOWED_MODELS', 'GEMINI_TTS_MODEL',
+    'GOOGLE_CLOUD_TTS_CREDENTIALS_JSON', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_TTS_USE_ADC']) {
     if (!(key in values)) delete process.env[key];
   }
 }
@@ -38,21 +39,36 @@ test('registry advertises only implemented providers and keeps Deepgram as sole 
   const providers = loadProviders();
   const described = providers.describeProviders();
   assert.deepEqual(described.stt.map((row) => row.id), ['deepgram']);
-  assert.deepEqual(described.tts.map((row) => row.id), ['rumik', 'kokoro', 'gemini_tts']);
+  assert.deepEqual(described.tts.map((row) => row.id), ['rumik', 'gemini_tts', 'google_cloud_tts']);
   assert.deepEqual(described.llm.map((row) => row.id), ['groq', 'gemini']);
   assert.deepEqual(described.telephony.map((row) => row.id), ['vobiz']);
   assert.equal(JSON.stringify(described).includes('API_KEY_VALUE'), false);
   assert.ok(Object.values(described).flat().every((row) => row.implemented === true));
 });
 
-test('Kokoro catalog exposes ten Indian voice presets including requested personas', () => {
+test('Groq defaults to the multilingual model verified for workflow tool calling', () => {
   resetEnv();
   const providers = loadProviders();
-  assert.equal(providers.KOKORO_VOICE_PRESETS.length, 10);
-  assert.ok(providers.KOKORO_VOICES.has('hm_omega(2)+hm_psi(1)'));
-  assert.ok(providers.KOKORO_VOICES.has('hm_omega(1)+hm_psi(2)'));
-  assert.ok(providers.KOKORO_VOICES.has('hf_alpha(1)+hf_beta(2)'));
-  assert.ok(providers.KOKORO_VOICE_PRESETS.every((voice) => voice.speed >= 0.75 && voice.speed <= 1.2));
+  assert.equal(providers.get('llm', 'groq').model, 'qwen/qwen3.8-27b');
+});
+
+test('Google Cloud catalog exposes every Hindi Neural2 voice', () => {
+  resetEnv();
+  const providers = loadProviders();
+  assert.deepEqual(
+    providers.GOOGLE_CLOUD_TTS_VOICE_PRESETS.map((voice) => voice.id),
+    ['hi-IN-Neural2-A', 'hi-IN-Neural2-B', 'hi-IN-Neural2-C', 'hi-IN-Neural2-D'],
+  );
+  assert.deepEqual(
+    providers.GOOGLE_CLOUD_TTS_VOICE_PRESETS.map((voice) => voice.gender),
+    ['female', 'male', 'male', 'female'],
+  );
+  assert.deepEqual(providers.GOOGLE_CLOUD_TTS_LIVE_VOICE_MAP, {
+    'hi-IN-Neural2-A': 'hi-IN-Chirp3-HD-Aoede',
+    'hi-IN-Neural2-B': 'hi-IN-Chirp3-HD-Charon',
+    'hi-IN-Neural2-C': 'hi-IN-Chirp3-HD-Fenrir',
+    'hi-IN-Neural2-D': 'hi-IN-Chirp3-HD-Kore',
+  });
 });
 
 test('environment selects an implemented LLM and model without tenant secrets', () => {
@@ -213,6 +229,33 @@ test('Gemini Telugu TTS sends the selected voice and wraps returned PCM as WAV',
   assert.match(request.payload.contents[0].parts[0].text, /నమస్కారం/);
   assert.equal(output.buffer.subarray(0, 4).toString('ascii'), 'RIFF');
   assert.equal(output.buffer.length, 44 + pcm.length);
+});
+
+test('Google Cloud Hindi TTS uses keyless ADC and preserves the selected Neural2 voice', async () => {
+  const { GoogleAuth } = require('google-auth-library');
+  const originalGetClient = GoogleAuth.prototype.getClient;
+  GoogleAuth.prototype.getClient = async () => ({ getAccessToken: async () => 'gcp-access-token', quotaProjectId: 'test-quota-project' });
+  resetEnv({ GOOGLE_CLOUD_TTS_USE_ADC: 'true' });
+  let request;
+  try {
+    const providers = loadProviders(async (host, path, headers, body) => {
+      request = { host, path, headers, payload: JSON.parse(body.toString('utf8')) };
+      return { status: 200, headers: {}, buffer: Buffer.from(JSON.stringify({ audioContent: Buffer.from('RIFFmock').toString('base64') })) };
+    });
+    const output = await providers.get('tts', 'google_cloud_tts').synthesize({
+      text: 'नमस्ते', model: 'neural2', speaker: 'hi-IN-Neural2-D', speed: 1,
+    });
+    assert.equal(request.host, 'texttospeech.googleapis.com');
+    assert.equal(request.path, '/v1/text:synthesize');
+    assert.equal(request.headers.Authorization, 'Bearer gcp-access-token');
+    assert.equal(request.headers['x-goog-user-project'], 'test-quota-project');
+    assert.equal(request.payload.voice.languageCode, 'hi-IN');
+    assert.equal(request.payload.voice.name, 'hi-IN-Neural2-D');
+    assert.equal(request.payload.audioConfig.audioEncoding, 'LINEAR16');
+    assert.equal(output.buffer.toString(), 'RIFFmock');
+  } finally {
+    GoogleAuth.prototype.getClient = originalGetClient;
+  }
 });
 
 test('Deepgram transcription remains the only mocked STT network path', async () => {

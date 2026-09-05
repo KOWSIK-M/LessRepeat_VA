@@ -46,6 +46,7 @@ const DEFAULT_PROVIDERS = Object.freeze({
 });
 const KOKORO_DEFAULT_VOICE = 'hf_beta';
 const GEMINI_TTS_DEFAULT_VOICE = 'Achird';
+const GOOGLE_CLOUD_TTS_DEFAULT_VOICE = 'hi-IN-Neural2-A';
 const GEMINI_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
 const GEMINI_LIVE_VOICE_MAP = Object.freeze({
   Achird: 'Puck',
@@ -66,8 +67,8 @@ function geminiTtsPreset(voice) {
 
 function normalizeAgentTts(input, fallback = {}) {
   const body = input && typeof input === 'object' ? input : {};
-  const requestedProvider = String(body.provider != null ? body.provider : fallback.provider || 'kokoro');
-  const provider = ['rumik', 'gemini_tts'].includes(requestedProvider) ? requestedProvider : 'kokoro';
+  const requestedProvider = String(body.provider != null ? body.provider : fallback.provider || 'rumik');
+  const provider = ['rumik', 'gemini_tts', 'google_cloud_tts'].includes(requestedProvider) ? requestedProvider : 'rumik';
   if (provider === 'kokoro') {
     const requestedVoice = body.speaker != null ? body.speaker : fallback.speaker;
     const speaker = providers.KOKORO_VOICES.has(requestedVoice) ? requestedVoice : KOKORO_DEFAULT_VOICE;
@@ -101,6 +102,20 @@ function normalizeAgentTts(input, fallback = {}) {
       description: String(body.description != null ? body.description : fallback.description || (preset && preset.description) || '').trim().slice(0, 500),
     };
   }
+  if (provider === 'google_cloud_tts') {
+    const requestedVoice = body.speaker != null ? body.speaker : fallback.speaker;
+    return {
+      provider,
+      model: 'neural2',
+      speaker: providers.GOOGLE_CLOUD_TTS_VOICES.has(requestedVoice) ? requestedVoice : GOOGLE_CLOUD_TTS_DEFAULT_VOICE,
+      speed: Number.isFinite(Number(body.speed != null ? body.speed : fallback.speed))
+        ? Math.max(0.25, Math.min(2, Number(body.speed != null ? body.speed : fallback.speed))) : 1,
+      f0_up_key: 0,
+      profile: '',
+      customVoiceId: String(body.customVoiceId != null ? body.customVoiceId : fallback.customVoiceId || ''),
+      description: '',
+    };
+  }
   const requestedModel = body.model != null ? body.model : fallback.model;
   const requestedSpeaker = body.speaker != null ? body.speaker : fallback.speaker;
   const requestedPitch = body.f0_up_key != null ? body.f0_up_key : fallback.f0_up_key;
@@ -119,7 +134,48 @@ function dograhVoiceConfigurations(tts, language = 'en-IN') {
   // A call can switch languages at any time. Local English Kokoro voices stay
   // available for previews, but live calls need the multilingual Dograh path.
   if (tts && tts.provider === 'kokoro') return {};
-  if (!tts || !['kokoro', 'gemini_tts'].includes(tts.provider)) return {};
+  if (!tts || !['kokoro', 'gemini_tts', 'google_cloud_tts'].includes(tts.provider)) return {};
+  if (tts.provider === 'google_cloud_tts') {
+    const credentials = String(process.env.GOOGLE_CLOUD_TTS_CREDENTIALS_JSON || '').trim();
+    const useAdc = String(process.env.GOOGLE_CLOUD_TTS_USE_ADC || '').toLowerCase() === 'true';
+    if (!credentials && !useAdc) return {};
+    const selectedVoice = providers.GOOGLE_CLOUD_TTS_VOICES.has(tts.speaker) ? tts.speaker : GOOGLE_CLOUD_TTS_DEFAULT_VOICE;
+    const googleTts = {
+      provider: 'google', model: 'chirp_3_hd',
+      voice: providers.GOOGLE_CLOUD_TTS_LIVE_VOICE_MAP[selectedVoice],
+      language: 'hi-IN', speed: Number(tts.speed || 1),
+    };
+    const geminiKey = String(process.env.GEMINI_API_KEY || '').trim();
+    const liveLlmProvider = String(process.env.DOGRAH_PIPELINE_LLM_PROVIDER || (geminiKey ? 'google' : 'groq')).trim().toLowerCase();
+    const liveLlm = liveLlmProvider === 'google' && geminiKey
+      ? {
+          provider: 'google', api_key: geminiKey,
+          model: String(process.env.GEMINI_DOGRAH_LLM_MODEL || 'gemini-3.5-flash-lite'),
+        }
+      : {
+          provider: 'groq', api_key: String(process.env.GROQ_API_KEY || ''),
+          model: String(process.env.GROQ_MODEL || process.env.LLM_MODEL || 'qwen/qwen3.8-27b'),
+        };
+    if (credentials) googleTts.credentials = credentials;
+    return {
+      max_user_idle_timeout: 30,
+      model_configuration_v2_override: {
+        version: 2,
+        mode: 'byok',
+        byok: {
+          mode: 'pipeline',
+          pipeline: {
+            stt: {
+              provider: 'deepgram', api_key: String(process.env.DEEPGRAM_API_KEY || ''),
+              model: String(process.env.DEEPGRAM_MODEL || 'nova-3'), language: 'multi',
+            },
+            llm: liveLlm,
+            tts: googleTts,
+          },
+        },
+      },
+    };
+  }
   if (tts.provider === 'gemini_tts') {
     // Gemini Live can close an otherwise healthy call with resource_exhausted
     // when the account has no realtime quota. Keep production/demo calls on
@@ -155,10 +211,15 @@ function dograhVoiceConfigurations(tts, language = 'en-IN') {
 }
 
 function demoVoiceTts(tts) {
+  if (tts && tts.provider === 'google_cloud_tts') return normalizeAgentTts(tts);
   return normalizeAgentTts({ provider: 'rumik', model: 'mulberry', speaker: 'speaker_1' });
 }
 
-function demoVoiceSignature() {
+function demoVoiceSignature(tts) {
+  if (tts && tts.provider === 'google_cloud_tts') {
+    const selectedVoice = providers.GOOGLE_CLOUD_TTS_VOICES.has(tts.speaker) ? tts.speaker : GOOGLE_CLOUD_TTS_DEFAULT_VOICE;
+    return `google-cloud-live:chirp3-v1:${selectedVoice}:${providers.GOOGLE_CLOUD_TTS_LIVE_VOICE_MAP[selectedVoice]}:${Number(tts.speed || 1)}`;
+  }
   return 'dograh-default:stable:v3';
 }
 
@@ -728,7 +789,7 @@ async function apiAgentsCreate(req, res, ctx) {
       buildDograhWorkflowDefinition(configuration, tenantVoiceContext(ctx.tenant.id))
     );
     if(ctx.onboardingAttempt)await core.mutate(d=>{const o=d.tenants.find(t=>t.id===ctx.tenant.id).onboarding;if(o.attempt!==ctx.onboardingAttempt)throw new Error('Agent creation attempt expired');o.provisionedWorkflowId=dograhWorkflow.id;});
-    if (ctx.onboardingAttempt || ['kokoro', 'gemini_tts'].includes(normalizedTts.provider)) {
+    if (ctx.onboardingAttempt || ['kokoro', 'gemini_tts', 'google_cloud_tts'].includes(normalizedTts.provider)) {
       dograhWorkflow = await dograh.updateWorkflow(
         dograhWorkflow.id,
         configuration.name,
@@ -877,7 +938,9 @@ async function apiAgentsDelete(req, res, ctx) {
   ].filter((workflowId) => Number.isInteger(workflowId) && workflowId > 0))];
   if (dograhWorkflowIds.length) {
     try {
-      await Promise.all(dograhWorkflowIds.map((workflowId) => dograh.updateWorkflowStatus(workflowId, 'archived')));
+      const archived = await Promise.allSettled(dograhWorkflowIds.map((workflowId) => dograh.updateWorkflowStatus(workflowId, 'archived')));
+      const blockingFailure = archived.find((result) => result.status === 'rejected' && Number(result.reason && result.reason.status) !== 404);
+      if (blockingFailure) throw blockingFailure.reason;
     } catch (error) {
       console.error('Dograh archival failed:', error.message || 'unknown error');
       return core.sendJson(res, 502, {
@@ -2589,7 +2652,7 @@ boot().then(() => {
     console.log(`  Marketing : http://localhost:${PORT}/`);
     console.log(`  Console   : http://localhost:${PORT}/app.html`);
     if (DEMO_EMAIL) console.log('  Test login: configured');
-    console.log(`  Providers : deepgram ${flag('stt', 'deepgram')}  groq ${flag('llm', 'groq')}  kokoro ${flag('tts', 'kokoro')}  rumik ${flag('tts', 'rumik')}  vobiz ${flag('telephony', 'vobiz')}\n`);
+    console.log(`  Providers : deepgram ${flag('stt', 'deepgram')}  groq ${flag('llm', 'groq')}  google ${flag('tts', 'google_cloud_tts')}  rumik ${flag('tts', 'rumik')}  vobiz ${flag('telephony', 'vobiz')}\n`);
   });
 }).catch((e) => {
   console.error('  boot failed:', e.message);

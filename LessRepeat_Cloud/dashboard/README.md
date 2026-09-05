@@ -4,7 +4,7 @@
 
 # LessRepeat
 
-**Production AI voice agents at roughly one rupee.** A premium, multi-tenant, provider-agnostic voice agent platform. Self-hosted Kokoro provides a zero per-character API-cost option, while Rumik remains available for premium custom voices.
+**Production AI voice agents at roughly one rupee.** A premium, multi-tenant, provider-agnostic voice agent platform. Rumik remains available for premium custom voices, and Google Cloud Neural2 provides native Hindi synthesis with matched Chirp 3 HD streaming voices for live calls.
 
 It runs from one Node service. The product shell is dependency-free browser JavaScript, while the agency analytics island is compiled from React and Recharts into a self-hosted bundle. No CDN runtime is required.
 
@@ -35,7 +35,7 @@ The product is built around strict adapter registries. The LLM and TTS layers ac
 | Layer | Implemented today | Selection |
 | --- | --- | --- |
 | **Transcription (STT)** | Deepgram Nova-3, batch and live streaming | Intentionally fixed to Deepgram |
-| **Voice (TTS)** | Self-hosted Kokoro plus Rumik Muga and Mulberry | Per agent, or `TTS_PROVIDER`, `TTS_MODEL` |
+| **Voice (TTS)** | Rumik Muga and Mulberry, Gemini Telugu, Google Cloud Hindi Neural2 | Per agent, or `TTS_PROVIDER`, `TTS_MODEL` |
 | **Brain (LLM)** | Groq and Google Gemini | `LLM_PROVIDER`, `LLM_MODEL` |
 | **Telephony** | VoBiz through Dograh | `TELEPHONY_PROVIDER` |
 
@@ -43,7 +43,7 @@ The product is built around strict adapter registries. The LLM and TTS layers ac
 
 To add another LLM or TTS vendor, implement the layer methods in `lib/providers.js`, register the adapter with `registerProvider`, and add mocked contract tests. A TTS adapter implements `synthesize` and `wsConnect`. An LLM adapter implements `chat`. STT remains Deepgram-only by product decision.
 
-Kokoro and Rumik are implemented. The Settings screen does not claim that ElevenLabs, Sarvam, or another TTS works until its adapter and tests are shipped.
+Rumik, Gemini Telugu preview, and Google Cloud Hindi Neural2 are implemented. See [GOOGLE-CLOUD-TTS.md](GOOGLE-CLOUD-TTS.md) for secure Google Cloud setup. The Settings screen does not claim that ElevenLabs, Sarvam, or another TTS works until its adapter and tests are shipped.
 
 ### Start Dograh with free local Indian voices
 
@@ -55,7 +55,7 @@ cd C:\Kowsik\LessRepeat_Cloud\dashboard
 node server.js
 ```
 
-The Kokoro service is pinned in `docker-compose-local.yaml`, listens on `127.0.0.1:8880`, and is reachable from Dograh as `http://kokoro-tts:8880/v1`. New Kokoro agents publish a Dograh BYOK pipeline using Deepgram STT, Groq LLM, and local Speaches-compatible Kokoro TTS. Talk and phone tests can use that experimental local path. Public Demo links intentionally use a separate Dograh-native workflow for smoother MVP conversations on CPU-only hosts.
+Public Demo links use a separate Dograh-native workflow for smooth MVP conversations. Agents configured with Google Hindi Neural2 use Neural2 for previews and an automatically matched Hindi Chirp 3 HD voice for Dograh's streaming Demo workflow.
 
 Example server defaults:
 
@@ -74,7 +74,7 @@ Dograh's published workflow is the authority for both browser WebRTC calls and p
 
 ## The economics
 
-Kokoro has no per-character API charge. Rumik silk remains the paid expressive option. Usage is metered per tenant per day and surfaced as an INR cost in the dashboard, so provider comparisons remain visible.
+Rumik silk remains the paid expressive option, while Google Cloud usage is metered by audio duration. Usage is metered per tenant per day and surfaced as an INR cost in the dashboard, so provider comparisons remain visible.
 
 ## What you can do in the console
 

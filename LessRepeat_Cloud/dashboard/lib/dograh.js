@@ -59,8 +59,10 @@ async function request(method, path, body = null) {
       data?.error ||
       data?.message ||
       `Dograh request failed with status ${response.status}`;
-
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = response.status === 404 ? 'dograh_not_found' : 'dograh_request_failed';
+    throw error;
   }
 
   return data;

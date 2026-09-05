@@ -3,7 +3,7 @@
  *
  * Four registries, each a uniform set of implemented adapters:
  *   stt        : deepgram, intentionally fixed
- *   tts        : rumik + self-hosted kokoro + Gemini Telugu
+ *   tts        : Rumik, Gemini Telugu, and Google Cloud Hindi
  *   llm        : groq + gemini
  *   telephony  : vobiz via Dograh
  *
@@ -22,12 +22,14 @@
 'use strict';
 
 const { httpsPost, httpsGet } = require('./core');
+const { GoogleAuth } = require('google-auth-library');
 
 // Rumik sits behind Cloudflare, which 403s non-browser user-agents. NEVER remove.
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
 
 const RUMIK_HOST = 'silk-api.rumik.ai';
 const GEMINI_HOST = 'generativelanguage.googleapis.com';
+const GOOGLE_TTS_HOST = 'texttospeech.googleapis.com';
 const DEEPGRAM_HOST = 'api.deepgram.com';
 const GROQ_HOST = 'api.groq.com';
 const KOKORO_BASE_URL = String(process.env.KOKORO_BASE_URL || 'http://127.0.0.1:8880').replace(/\/+$/, '');
@@ -46,6 +48,23 @@ const GEMINI_TTS_VOICE_PRESETS = Object.freeze([
   Object.freeze({ id: 'Charon', label: 'Ravi', description: 'Informative, steady Telugu man' }),
 ]);
 const GEMINI_TTS_VOICES = new Set(GEMINI_TTS_VOICE_PRESETS.map((voice) => voice.id));
+const GOOGLE_CLOUD_TTS_MODELS = new Set(['neural2']);
+const GOOGLE_CLOUD_TTS_VOICE_PRESETS = Object.freeze([
+  Object.freeze({ id: 'hi-IN-Neural2-A', label: 'Hindi Female A', gender: 'female', language: 'hi-IN', speed: 1, description: 'Clear and professional Hindi woman' }),
+  Object.freeze({ id: 'hi-IN-Neural2-B', label: 'Hindi Male B', gender: 'male', language: 'hi-IN', speed: 1, description: 'Natural and confident Hindi man' }),
+  Object.freeze({ id: 'hi-IN-Neural2-C', label: 'Hindi Male C', gender: 'male', language: 'hi-IN', speed: 1, description: 'Warm and conversational Hindi man' }),
+  Object.freeze({ id: 'hi-IN-Neural2-D', label: 'Hindi Female D', gender: 'female', language: 'hi-IN', speed: 1, description: 'Warm and approachable Hindi woman' }),
+]);
+const GOOGLE_CLOUD_TTS_VOICES = new Set(GOOGLE_CLOUD_TTS_VOICE_PRESETS.map((voice) => voice.id));
+// Neural2 is supported by Google's standard synthesis endpoint, but not its
+// bidirectional streaming endpoint. Dograh live calls use streaming TTS, so
+// each Studio Neural2 choice gets a same-gender Hindi Chirp 3 HD live voice.
+const GOOGLE_CLOUD_TTS_LIVE_VOICE_MAP = Object.freeze({
+  'hi-IN-Neural2-A': 'hi-IN-Chirp3-HD-Aoede',
+  'hi-IN-Neural2-B': 'hi-IN-Chirp3-HD-Charon',
+  'hi-IN-Neural2-C': 'hi-IN-Chirp3-HD-Fenrir',
+  'hi-IN-Neural2-D': 'hi-IN-Chirp3-HD-Kore',
+});
 const KOKORO_VOICE_PRESETS = Object.freeze([
   Object.freeze({ id: 'hm_omega', label: 'Arjun', speed: 1.06, description: 'Young, clear Indian male' }),
   Object.freeze({ id: 'hm_psi', label: 'Vikram', speed: 0.96, description: 'Steady, mature Indian male' }),
@@ -309,6 +328,91 @@ const ttsGemini = {
   },
 };
 
+function googleCloudCredentials() {
+  const raw = String(process.env.GOOGLE_CLOUD_TTS_CREDENTIALS_JSON || '').trim();
+  if (!raw) return null;
+  try {
+    const credentials = JSON.parse(raw);
+    if (!credentials || typeof credentials !== 'object' || !credentials.client_email || !credentials.private_key) {
+      throw new Error('missing client_email or private_key');
+    }
+    return credentials;
+  } catch (error) {
+    throw new ProviderError('GOOGLE_CLOUD_TTS_CREDENTIALS_JSON is not valid service-account JSON', 503, 'invalid_credentials', error.message);
+  }
+}
+
+async function googleCloudAccessToken() {
+  const credentials = googleCloudCredentials();
+  const auth = new GoogleAuth({
+    ...(credentials ? { credentials } : {}),
+    scopes: ['https://www.googleapis.com/auth/cloud-platform'],
+  });
+  const client = await auth.getClient();
+  const token = await client.getAccessToken();
+  const value = typeof token === 'string' ? token : token && token.token;
+  if (!value) throw new ProviderError('Google Cloud credentials returned no access token', 503, 'invalid_credentials');
+  const quotaProject = String(
+    process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT
+    || client.quotaProjectId || auth.quotaProjectId || ''
+  ).trim();
+  return { token: value, quotaProject };
+}
+
+const ttsGoogleCloud = {
+  id: 'google_cloud_tts',
+  label: 'Google Cloud Hindi Neural2',
+  layer: 'tts',
+  needs: ['GOOGLE_CLOUD_TTS_CREDENTIALS_JSON'],
+  implemented: true,
+  models: GOOGLE_CLOUD_TTS_MODELS,
+  get live() {
+    return hasEnv(this.needs) || hasEnv(['GOOGLE_APPLICATION_CREDENTIALS'])
+      || String(process.env.GOOGLE_CLOUD_TTS_USE_ADC || '').toLowerCase() === 'true';
+  },
+  get model() { return 'neural2'; },
+
+  async synthesize(opts) {
+    if (!this.live) throw notConfigured(this.label, this.needs);
+    const model = selectedModel(this, opts.model);
+    const text = String(opts.text || '').trim().slice(0, MAX_TEXT);
+    if (!text) throw new ProviderError('text is required', 422, 'no_text');
+    const voice = GOOGLE_CLOUD_TTS_VOICES.has(opts.speaker) ? opts.speaker : 'hi-IN-Neural2-A';
+    const preset = GOOGLE_CLOUD_TTS_VOICE_PRESETS.find((item) => item.id === voice);
+    const speed = Number.isFinite(Number(opts.speed)) ? Math.max(0.25, Math.min(2, Number(opts.speed))) : 1;
+    let authorization;
+    try { authorization = await googleCloudAccessToken(); }
+    catch (error) {
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError('Google Cloud authentication failed', 503, 'invalid_credentials', error.message);
+    }
+    const payload = Buffer.from(JSON.stringify({
+      input: { text },
+      voice: { languageCode: preset.language, name: voice },
+      audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: 24000, speakingRate: speed },
+    }));
+    const headers = {
+      Authorization: `Bearer ${authorization.token}`,
+      'Content-Type': 'application/json',
+      'Content-Length': payload.length,
+    };
+    if (authorization.quotaProject) headers['x-goog-user-project'] = authorization.quotaProject;
+    const upstream = await httpsPost(GOOGLE_TTS_HOST, '/v1/text:synthesize', headers, payload);
+    let data = {};
+    try { data = JSON.parse(upstream.buffer.toString('utf8')); } catch {}
+    if (upstream.status < 200 || upstream.status >= 300) {
+      throw new ProviderError('Google Cloud Hindi synthesis failed', upstream.status, 'upstream', String(data?.error?.message || '').slice(0, 300));
+    }
+    const audio = Buffer.from(String(data.audioContent || ''), 'base64');
+    if (!audio.length) throw new ProviderError('Google Cloud returned no audio', 502, 'empty_audio');
+    return { buffer: audio, credits: 'Google Cloud characters', chars: text.length, model };
+  },
+
+  async wsConnect() {
+    throw new ProviderError('Google Neural2 uses file synthesis', 409, 'file_synthesis_only');
+  },
+};
+
 /* ==========================================================================
    LLM LAYER. Speech recognition intentionally remains Deepgram only.
    ========================================================================== */
@@ -377,7 +481,7 @@ const llmGroq = {
   implemented: true,
   modelAllowlistEnv: 'GROQ_ALLOWED_MODELS',
   get live() { return hasEnv(this.needs); },
-  get model() { return process.env.GROQ_MODEL || 'openai/gpt-oss-20b'; },
+  get model() { return process.env.GROQ_MODEL || 'qwen/qwen3.8-27b'; },
 
   async chat(opts) {
     const key = process.env.GROQ_API_KEY;
@@ -679,8 +783,8 @@ function registerProvider(layer, adapter, options = {}) {
 
 registerProvider('stt', sttDeepgram);
 registerProvider('tts', ttsRumik);
-registerProvider('tts', ttsKokoro);
 registerProvider('tts', ttsGemini);
+registerProvider('tts', ttsGoogleCloud);
 registerProvider('llm', llmGroq);
 registerProvider('llm', llmGemini);
 registerProvider('telephony', telVobiz);
@@ -755,5 +859,7 @@ module.exports = {
   stt, tts, llm, telephony,
   MAX_TEXT, TTS_MODELS, TTS_SPEAKERS, KOKORO_MODELS, KOKORO_VOICES, KOKORO_VOICE_PRESETS,
   GEMINI_TTS_MODELS, GEMINI_TTS_VOICES, GEMINI_TTS_VOICE_PRESETS,
+  GOOGLE_CLOUD_TTS_MODELS, GOOGLE_CLOUD_TTS_VOICES, GOOGLE_CLOUD_TTS_VOICE_PRESETS,
+  GOOGLE_CLOUD_TTS_LIVE_VOICE_MAP,
   BROWSER_UA, MODEL_ID_RE,
 };
